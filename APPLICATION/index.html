@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supervision Autoclave - Raynal & Roquelaure</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1e1e1e;
+            color: #ffffff;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .header {
+            background-color: #c8102e; /* Rouge Raynal & Roquelaure */
+            padding: 20px;
+            border-radius: 10px;
+            width: 80%;
+            text-align: center;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+        }
+        .dashboard {
+            display: flex;
+            gap: 20px;
+            width: 80%;
+            justify-content: space-between;
+        }
+        .card {
+            background-color: #2d2d2d;
+            border: 2px solid #444;
+            border-radius: 10px;
+            padding: 20px;
+            flex: 1;
+            text-align: center;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        }
+        .value {
+            font-size: 3em;
+            font-weight: bold;
+            color: #f1c40f; /* Jaune */
+            margin: 10px 0;
+        }
+        .state-badge {
+            display: inline-block;
+            padding: 10px 20px;
+            background-color: #27ae60;
+            border-radius: 5px;
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>RAYNAL & ROQUELAURE</h1>
+        <h2>Supervision Autoclave N°1</h2>
+    </div>
+
+    <div class="dashboard">
+        <div class="card">
+            <h3>Température Actuelle</h3>
+            <div class="value">26.5 °C</div>
+            <p>Sonde PT100</p>
+        </div>
+
+        <div class="card">
+            <h3>État du Système</h3>
+            <br>
+            <div class="state-badge">EN CHAUFFE</div>
+        </div>
+
+        <div class="card">
+            <h3>Consigne</h3>
+            <div class="value" style="color: #2ecc71;">110.0 °C</div>
+            <p>Seuil de stérilisation</p>
+        </div>
+    </div>
+
+</body>
+</html>
