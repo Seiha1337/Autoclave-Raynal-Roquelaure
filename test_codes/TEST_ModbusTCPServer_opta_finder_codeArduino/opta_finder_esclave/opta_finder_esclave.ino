@@ -1,387 +1,254 @@
 /*
-!! L'automate génère 2 ports COM
-VsCode prend par défaut le mauvais
-imposez le bon avant de transférer le code
+!! L'automate génère 2 ports COM. Imposez le bon !
 */
-
 #include <Arduino.h>
 #include <Ethernet.h>
 #include <ArduinoModbus.h>
 
-// ========== CONFIGURATION ETHERNET (IP FIXE) ==========
+// ========== CONFIGURATION ETHERNET FILAIRE (RJ45 UNIQUEMENT) ==========
 byte mac[] = { 0xA8, 0x61, 0x0A, 0xAE, 0x76, 0x05 }; 
-IPAddress ip(192, 168, 50, 210);                      
+IPAddress ip(192, 168, 50, 50);
 
-// ========== SERVEURS ==========
-EthernetServer webServer(80);     // Serveur web sur le port 80
-EthernetServer modbusServer(502); // Serveur Modbus sur le port 502
-ModbusTCPServer modbusTCPServer;
+EthernetServer webServer(80);
+EthernetClient ethClient;          
+ModbusTCPClient modbusTCPClient(ethClient); 
 
-// ========== VARIABLES D'ÉTAT ==========
-bool lastButtonState = HIGH;
-unsigned long lastDebounceTime = 0;
-const unsigned long debounceDelay = 50;
+// --- Paramètres de Scalabilité (Mise à l'échelle) ---
+#define MAX_AUTOCLAVES 10
+int nbAutoclaves = 5; // On commence avec les 5 de base
 
-// Variables Modbus / Simulation
-unsigned long lastUpdate = 0;
-int fausseTemperature = 200; // 20.0 °C
+// Tableaux de données dimensionnés pour le maximum
+IPAddress ipAutoclaves[MAX_AUTOCLAVES] = {
+  IPAddress(192, 168, 50, 51),
+  IPAddress(192, 168, 50, 52),
+  IPAddress(192, 168, 50, 53),
+  IPAddress(192, 168, 50, 54),
+  IPAddress(192, 168, 50, 55)
+};
 
-// Variables anti-blocage (millis) pour les LEDs D0-D3
-unsigned long previousMillisLED = 0;
-int ledStep = 0;
+float consigneGlobale = 110.0;
+int etatMachine[MAX_AUTOCLAVES] = {0};
+float tempMachine[MAX_AUTOCLAVES] = {0.0};
+bool enLigne[MAX_AUTOCLAVES] = {false};
 
-// ========== PAGE HTML/CSS EMBARQUÉE (DESIGN R&R) ==========
-const char webpage[] PROGMEM = R"rawliteral(
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Supervision Autoclave - Raynal & Roquelaure</title>
-    <meta http-equiv="refresh" content="2">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1a1a1a; color: #ffffff; min-height: 100vh; padding: 20px; }
-        .container { max-width: 900px; margin: 0 auto; }
-        
-        /* Bandeau Raynal & Roquelaure */
-        .header { background-color: #c8102e; padding: 20px; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(200, 16, 46, 0.3); border-bottom: 4px solid #f1c40f; }
-        h1 { color: white; text-align: center; margin-bottom: 5px; font-size: 2.2em; letter-spacing: 2px; text-transform: uppercase; }
-        .subtitle { text-align: center; color: #f1c40f; font-size: 1.2em; font-weight: bold; }
-        
-        /* Cartes d'information */
-        .card { background: #2d2d2d; border: 1px solid #444; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
-        .card h3 { color: #f1c40f; margin-bottom: 15px; font-size: 1.3em; text-align: center; border-bottom: 1px solid #444; padding-bottom: 10px; }
-        
-        /* Section Modbus */
-        .modbus-grid { display: flex; gap: 20px; margin-bottom: 20px; }
-        .modbus-box { flex: 1; background: #222; border-radius: 8px; padding: 15px; text-align: center; border: 1px solid #555; }
-        .modbus-label { color: #aaa; font-size: 0.9em; text-transform: uppercase; margin-bottom: 5px; }
-        .modbus-value { font-size: 2.5em; font-weight: bold; color: #fff; }
-        .val-temp { color: #e74c3c; }
-        .val-cons { color: #2ecc71; }
-        
-        .info-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; color: #ccc; }
-        .info-grid p { margin: 5px 0; }
-        .info-grid strong { color: #fff; }
-
-        /* Grilles Relais et Entrées */
-        .relays-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; }
-        .relay-card { background: #222; border-radius: 10px; padding: 15px; text-align: center; border: 1px solid #444; }
-        .relay-card h4 { color: #fff; margin-bottom: 15px; }
-        .relay-buttons { display: flex; gap: 10px; margin-bottom: 10px; }
-        .relay-state { margin-top: 10px; padding: 5px; border-radius: 5px; font-weight: bold; }
-        
-        .btn { flex: 1; padding: 10px; font-size: 0.9em; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; text-decoration: none; color: white; text-align: center; }
-        .btn-on { background: #27ae60; }
-        .btn-on:hover { background: #2ecc71; }
-        .btn-off { background: #c0392b; }
-        .btn-off:hover { background: #e74c3c; }
-        
-        .inputs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 10px; }
-        .input-item { text-align: center; padding: 10px; border-radius: 8px; background: #1a1a1a; border: 1px solid #333; }
-        .input-label { font-weight: bold; color: #aaa; margin-bottom: 5px; }
-        .input-state { font-size: 1.5em; margin-top: 5px; }
-        .state-high { color: #2ecc71; text-shadow: 0 0 10px #2ecc71; }
-        .state-low { color: #555; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        
-        <div class="header">
-            <h1>RAYNAL & ROQUELAURE</h1>
-            <p class="subtitle">SUPERVISION AUTOCLAVE N°1 - OPTA</p>
-        </div>
-        
-        <div class="modbus-grid">
-            <div class="modbus-box">
-                <div class="modbus-label">Température Cuve</div>
-                <div class="modbus-value val-temp">TEMP_PLACEHOLDER °C</div>
-            </div>
-            <div class="modbus-box">
-                <div class="modbus-label">Consigne Cible</div>
-                <div class="modbus-value val-cons">CONSIGNE_PLACEHOLDER °C</div>
-            </div>
-        </div>
-
-        <div class="card">
-            <h3>Diagnostic Réseau</h3>
-            <div class="info-grid">
-                <p><strong>📡 Liaison :</strong> Ethernet Filaire (RJ45)</p>
-                <p><strong>🔌 IP Fixe :</strong> IP_PLACEHOLDER</p>
-                <p><strong>⚙️ Plateforme :</strong> Automate OPTA</p>
-                <p><strong>🌐 Ports ouverts :</strong> 502 (Modbus) & 80 (Web)</p>
-            </div>
-        </div>
-        
-        <div class="card">
-            <h3>Actionneurs (Relais)</h3>
-            <div class="relays-grid">
-                <div class="relay-card">
-                    <h4>Vanne Vapeur (R1)</h4>
-                    <div class="relay-buttons">
-                        <a href="/RELAY1=ON" class="btn btn-on">ON</a>
-                        <a href="/RELAY1=OFF" class="btn btn-off">OFF</a>
-                    </div>
-                    <div class="relay-state RELAY1_CLASS">RELAY1_STATE</div>
-                </div>
-                <div class="relay-card">
-                    <h4>Vanne Eau (R2)</h4>
-                    <div class="relay-buttons">
-                        <a href="/RELAY2=ON" class="btn btn-on">ON</a>
-                        <a href="/RELAY2=OFF" class="btn btn-off">OFF</a>
-                    </div>
-                    <div class="relay-state RELAY2_CLASS">RELAY2_STATE</div>
-                </div>
-                <div class="relay-card">
-                    <h4>Vidange (R3)</h4>
-                    <div class="relay-buttons">
-                        <a href="/RELAY3=ON" class="btn btn-on">ON</a>
-                        <a href="/RELAY3=OFF" class="btn btn-off">OFF</a>
-                    </div>
-                    <div class="relay-state RELAY3_CLASS">RELAY3_STATE</div>
-                </div>
-                <div class="relay-card">
-                    <h4>Alarme (R4)</h4>
-                    <div class="relay-buttons">
-                        <a href="/RELAY4=ON" class="btn btn-on">ON</a>
-                        <a href="/RELAY4=OFF" class="btn btn-off">OFF</a>
-                    </div>
-                    <div class="relay-state RELAY4_CLASS">RELAY4_STATE</div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="card">
-            <h3>Capteurs (Entrées Digitales)</h3>
-            <div class="inputs-grid">
-                <div class="input-item">
-                    <div class="input-label">I1</div>
-                    <div class="input-state INPUT1_CLASS">INPUT1_STATE</div>
-                </div>
-                <div class="input-item">
-                    <div class="input-label">I2</div>
-                    <div class="input-state INPUT2_CLASS">INPUT2_STATE</div>
-                </div>
-                <div class="input-item">
-                    <div class="input-label">I3</div>
-                    <div class="input-state INPUT3_CLASS">INPUT3_STATE</div>
-                </div>
-                <div class="input-item">
-                    <div class="input-label">I4</div>
-                    <div class="input-state INPUT4_CLASS">INPUT4_STATE</div>
-                </div>
-                <div class="input-item">
-                    <div class="input-label">I5</div>
-                    <div class="input-state INPUT5_CLASS">INPUT5_STATE</div>
-                </div>
-                <div class="input-item">
-                    <div class="input-label">I6</div>
-                    <div class="input-state INPUT6_CLASS">INPUT6_STATE</div>
-                </div>
-                <div class="input-item">
-                    <div class="input-label">I7</div>
-                    <div class="input-state INPUT7_CLASS">INPUT7_STATE</div>
-                </div>
-                <div class="input-item">
-                    <div class="input-label">I8</div>
-                    <div class="input-state INPUT8_CLASS">INPUT8_STATE</div>
-                </div>
-            </div>
-        </div>
-    </div>
-</body>
-</html>
-)rawliteral";
+// --- Fonction "Ping" et Synchronisation d'une machine ---
+void pingAndSync(int id) {
+  // Timeout très court (250ms) : agit comme un Ping. Si ça bloque, la machine est éteinte.
+  modbusTCPClient.setTimeout(250); 
+  
+  if (modbusTCPClient.begin(ipAutoclaves[id], 502)) {
+    enLigne[id] = true;
+    
+    // 1. Envoi de la consigne globale
+    modbusTCPClient.holdingRegisterWrite(0x02, (uint16_t)(consigneGlobale * 10));
+    // 2. Envoi de l'état (Marche/Arrêt) spécifique à cette machine
+    modbusTCPClient.holdingRegisterWrite(0x01, etatMachine[id]);
+    // 3. Lecture de la température
+    long tempBrute = modbusTCPClient.holdingRegisterRead(0x00);
+    if (tempBrute != -1) {
+      tempMachine[id] = tempBrute / 10.0;
+    }
+    
+    modbusTCPClient.stop();
+  } else {
+    enLigne[id] = false;
+    tempMachine[id] = 0.0;
+    modbusTCPClient.stop();
+    ethClient.stop();
+  }
+}
 
 void setup() {
   Serial.begin(115200);
   delay(2000);
   
-  Serial.println("\n=== Arduino OPTA - Serveur Web + Modbus (ETHERNET) ===");
+  Serial.println("\n=== OPTA : SUPERVISION MANUELLE & DYNAMIQUE (RJ45) ===");
   
-  // Configuration LED
-  pinMode(LED_BUILTIN, OUTPUT);
-  pinMode(LED_D0, OUTPUT); pinMode(LED_D1, OUTPUT);
-  pinMode(LED_D2, OUTPUT); pinMode(LED_D3, OUTPUT);
-  pinMode(LEDR, OUTPUT); pinMode(LEDG, OUTPUT);
-  
-  digitalWrite(LED_BUILTIN, LOW);
-  digitalWrite(LED_D0, LOW); digitalWrite(LED_D1, LOW);
-  digitalWrite(LED_D2, LOW); digitalWrite(LED_D3, LOW);
-  digitalWrite(LEDR, LOW); digitalWrite(LEDG, LOW);   
-  
-  // Configuration bouton USER & Relais & Entrées
-  pinMode(BTN_USER, INPUT_PULLUP);
-  
-  pinMode(RELAY1, OUTPUT); pinMode(RELAY2, OUTPUT);
-  pinMode(RELAY3, OUTPUT); pinMode(RELAY4, OUTPUT);
-  digitalWrite(RELAY1, LOW); digitalWrite(RELAY2, LOW);
-  digitalWrite(RELAY3, LOW); digitalWrite(RELAY4, LOW);
-  
-  pinMode(I1, INPUT); pinMode(I2, INPUT); pinMode(I3, INPUT); pinMode(I4, INPUT);
-  pinMode(I5, INPUT); pinMode(I6, INPUT); pinMode(I7, INPUT); pinMode(I8, INPUT);
-  
-  // Connexion Ethernet Filaire
-  Serial.println("Initialisation du reseau Ethernet...");
+  // Lancement de la connexion physique Ethernet
   Ethernet.begin(mac, ip);
   delay(1000);
-  
-  Serial.println("\n✓ Reseau OK !");
-  Serial.print("Adresse IP: ");
+  Serial.print("IP OPTA (Ethernet): ");
   Serial.println(Ethernet.localIP());
-  
-  // Démarrage des serveurs
   webServer.begin();
-  modbusServer.begin();
-  
-  if (!modbusTCPServer.begin()) {
-    Serial.println("✗ Erreur initialisation Modbus !");
-    digitalWrite(LEDR, HIGH);  // Rouge ON = Erreur
-  } else {
-    modbusTCPServer.configureHoldingRegisters(0x00, 3);
-    modbusTCPServer.holdingRegisterWrite(0x00, fausseTemperature); // Reg 0 : Température
-    modbusTCPServer.holdingRegisterWrite(0x01, 1);                 // Reg 1 : Etat
-    modbusTCPServer.holdingRegisterWrite(0x02, 1100);              // Reg 2 : Consigne par défaut (110.0 °C)
-    Serial.println("✓ Serveur Modbus démarre (Port 502)");
-    digitalWrite(LEDG, HIGH);  // Vert ON = OK
-  }
-  
-  Serial.println("✓ Serveur web démarre (Port 80)");
-  Serial.println("=============================\n");
 }
 
 void loop() {
-  unsigned long currentMillis = millis();
-
-  // ---------------------------------------------------------
-  // 1. ANIMATION DES LEDs
-  // ---------------------------------------------------------
-  if (currentMillis - previousMillisLED >= 100) {
-    previousMillisLED = currentMillis;
-    digitalWrite(LED_D0, LOW); digitalWrite(LED_D1, LOW);
-    digitalWrite(LED_D2, LOW); digitalWrite(LED_D3, LOW);
-    
-    if(ledStep == 0) digitalWrite(LED_D0, HIGH);
-    else if(ledStep == 1) digitalWrite(LED_D1, HIGH);
-    else if(ledStep == 2) digitalWrite(LED_D2, HIGH);
-    else if(ledStep == 3) digitalWrite(LED_D3, HIGH);
-    
-    ledStep++;
-    if (ledStep > 4) ledStep = 0; 
-  }
-
-  // ---------------------------------------------------------
-  // 2. GESTION DU MODBUS TCP (qModMaster)
-  // ---------------------------------------------------------
-  EthernetClient modbusClient = modbusServer.available();
-  if (modbusClient) {
-    modbusTCPServer.accept(modbusClient);
-    if (modbusClient.connected()) {
-      modbusTCPServer.poll();
-    }
-  }
-
-  // ---------------------------------------------------------
-  // 3. MISE A JOUR DES DONNEES (La simulation Modbus)
-  // ---------------------------------------------------------
-  if (currentMillis - lastUpdate > 1000) {
-    lastUpdate = currentMillis;
-    fausseTemperature += 5; // +0.5 °C
-    if (fausseTemperature > 1100) fausseTemperature = 200;
-    modbusTCPServer.holdingRegisterWrite(0x00, fausseTemperature);
-  }
-
-  // ---------------------------------------------------------
-  // 4. GESTION DU BOUTON USER
-  // ---------------------------------------------------------
-  int buttonReading = digitalRead(BTN_USER);
-  if (buttonReading != lastButtonState) {
-    lastDebounceTime = currentMillis;
-  }
-  
-  if ((currentMillis - lastDebounceTime) > debounceDelay) {
-    if (buttonReading == LOW) {  
-      Serial.println("Test des relais depuis le bouton...");
-      digitalWrite(RELAY1, !digitalRead(RELAY1));
-      while(digitalRead(BTN_USER) == LOW) { delay(10); } 
-    }
-  }
-  lastButtonState = buttonReading;
-
-  // ---------------------------------------------------------
-  // 5. GESTION DU SERVEUR WEB
-  // ---------------------------------------------------------
   EthernetClient webClient = webServer.available();
   if (webClient) {
-    String currentLine = "";
     String request = "";
-    
+    boolean currentLineIsBlank = true; 
+
     while (webClient.connected()) {
       if (webClient.available()) {
         char c = webClient.read();
         request += c;
         
-        if (c == '\n') {
-          if (currentLine.length() == 0) {
-            
-            // Traitement des boutons HTML
-            if (request.indexOf("GET /RELAY1=ON") >= 0) { digitalWrite(RELAY1, HIGH); }
-            else if (request.indexOf("GET /RELAY1=OFF") >= 0) { digitalWrite(RELAY1, LOW); }
-            else if (request.indexOf("GET /RELAY2=ON") >= 0) { digitalWrite(RELAY2, HIGH); }
-            else if (request.indexOf("GET /RELAY2=OFF") >= 0) { digitalWrite(RELAY2, LOW); }
-            else if (request.indexOf("GET /RELAY3=ON") >= 0) { digitalWrite(RELAY3, HIGH); }
-            else if (request.indexOf("GET /RELAY3=OFF") >= 0) { digitalWrite(RELAY3, LOW); }
-            else if (request.indexOf("GET /RELAY4=ON") >= 0) { digitalWrite(RELAY4, HIGH); }
-            else if (request.indexOf("GET /RELAY4=OFF") >= 0) { digitalWrite(RELAY4, LOW); }
-            
-            // Envoi de l'en-tête HTTP
-            webClient.println("HTTP/1.1 200 OK");
-            webClient.println("Content-Type: text/html; charset=utf-8");
-            webClient.println("Connection: close");
-            webClient.println();
-            
-            // Formatage de l'adresse IP
-            String ipStr = String(Ethernet.localIP()[0]) + "." + 
-                           String(Ethernet.localIP()[1]) + "." + 
-                           String(Ethernet.localIP()[2]) + "." + 
-                           String(Ethernet.localIP()[3]);
-
-            // LECTURE DE LA CONSIGNE DIRECTEMENT DEPUIS LE MODBUS !
-            long consigneBrute = modbusTCPServer.holdingRegisterRead(0x02);
-            float consigneReelle = consigneBrute / 10.0;
-
-            // Remplacement des Placeholders HTML
-            String page = webpage;
-            page.replace("IP_PLACEHOLDER", ipStr);
-            page.replace("TEMP_PLACEHOLDER", String(fausseTemperature / 10.0, 1));
-            page.replace("CONSIGNE_PLACEHOLDER", String(consigneReelle, 1)); // Injection de la consigne
-            
-            page.replace("INPUT1_STATE", digitalRead(I1) ? "●" : "○"); page.replace("INPUT1_CLASS", digitalRead(I1) ? "state-high" : "state-low");
-            page.replace("INPUT2_STATE", digitalRead(I2) ? "●" : "○"); page.replace("INPUT2_CLASS", digitalRead(I2) ? "state-high" : "state-low");
-            page.replace("INPUT3_STATE", digitalRead(I3) ? "●" : "○"); page.replace("INPUT3_CLASS", digitalRead(I3) ? "state-high" : "state-low");
-            page.replace("INPUT4_STATE", digitalRead(I4) ? "●" : "○"); page.replace("INPUT4_CLASS", digitalRead(I4) ? "state-high" : "state-low");
-            page.replace("INPUT5_STATE", digitalRead(I5) ? "●" : "○"); page.replace("INPUT5_CLASS", digitalRead(I5) ? "state-high" : "state-low");
-            page.replace("INPUT6_STATE", digitalRead(I6) ? "●" : "○"); page.replace("INPUT6_CLASS", digitalRead(I6) ? "state-high" : "state-low");
-            page.replace("INPUT7_STATE", digitalRead(I7) ? "●" : "○"); page.replace("INPUT7_CLASS", digitalRead(I7) ? "state-high" : "state-low");
-            page.replace("INPUT8_STATE", digitalRead(I8) ? "●" : "○"); page.replace("INPUT8_CLASS", digitalRead(I8) ? "state-high" : "state-low");
-            
-            page.replace("RELAY1_STATE", digitalRead(RELAY1) ? "ON" : "OFF"); page.replace("RELAY1_CLASS", digitalRead(RELAY1) ? "state-high" : "state-low");
-            page.replace("RELAY2_STATE", digitalRead(RELAY2) ? "ON" : "OFF"); page.replace("RELAY2_CLASS", digitalRead(RELAY2) ? "state-high" : "state-low");
-            page.replace("RELAY3_STATE", digitalRead(RELAY3) ? "ON" : "OFF"); page.replace("RELAY3_CLASS", digitalRead(RELAY3) ? "state-high" : "state-low");
-            page.replace("RELAY4_STATE", digitalRead(RELAY4) ? "ON" : "OFF"); page.replace("RELAY4_CLASS", digitalRead(RELAY4) ? "state-high" : "state-low");
-            
-            webClient.print(page);
-            break;
-          } else {
-            currentLine = "";
+        if (c == '\n' && currentLineIsBlank) {
+          
+          // =========================================================
+          // 1. TRAITEMENT DES ORDRES UTILISATEUR
+          // =========================================================
+          
+          // Action : Tester (Ping) une machine
+          if (request.indexOf("GET /?scan=") >= 0) {
+            int id = request.substring(request.indexOf("scan=") + 5, request.indexOf("scan=") + 7).toInt();
+            if(id < nbAutoclaves) pingAndSync(id);
           }
+          // Action : Démarrer une machine
+          else if (request.indexOf("GET /?start=") >= 0) {
+            int id = request.substring(request.indexOf("start=") + 6, request.indexOf("start=") + 8).toInt();
+            if(id < nbAutoclaves) {
+              etatMachine[id] = 1;
+              pingAndSync(id);
+            }
+          }
+          // Action : Arrêter une machine
+          else if (request.indexOf("GET /?stop=") >= 0) {
+            int id = request.substring(request.indexOf("stop=") + 5, request.indexOf("stop=") + 7).toInt();
+            if(id < nbAutoclaves) {
+              etatMachine[id] = 0;
+              pingAndSync(id);
+            }
+          }
+          // Action : Changer la consigne globale
+          else if (request.indexOf("GET /?consigne=") >= 0) {
+            int posDebut = request.indexOf("consigne=") + 9;
+            int posFin = request.indexOf(" HTTP", posDebut); 
+            consigneGlobale = request.substring(posDebut, posFin).toFloat();
+            // On synchronise uniquement les machines qui sont déjà en ligne
+            for(int i = 0; i < nbAutoclaves; i++) {
+              if(enLigne[i]) pingAndSync(i);
+            }
+          }
+          // Action : Ajouter une nouvelle adresse IP
+          else if (request.indexOf("GET /?add_ip=") >= 0) {
+            int posDebut = request.indexOf("add_ip=") + 7;
+            int posFin = request.indexOf(" HTTP", posDebut);
+            String newIpStr = request.substring(posDebut, posFin);
+            
+            // Si on n'a pas atteint la limite des 10 autoclaves
+            if (nbAutoclaves < MAX_AUTOCLAVES) {
+              IPAddress newIP;
+              if (newIP.fromString(newIpStr)) { // Vérifie que c'est bien une IP valide
+                ipAutoclaves[nbAutoclaves] = newIP;
+                etatMachine[nbAutoclaves] = 0;
+                pingAndSync(nbAutoclaves); // On la ping immédiatement !
+                nbAutoclaves++;
+              }
+            }
+          }
+          // Action : Supprimer une IP
+          else if (request.indexOf("GET /?del=") >= 0) {
+            int posDebut = request.indexOf("del=") + 4;
+            int posFin = request.indexOf(" HTTP", posDebut);
+            int id = request.substring(posDebut, posFin).toInt();
+            
+            if (id >= 0 && id < nbAutoclaves) {
+              // On décale toutes les machines suivantes vers la gauche
+              for (int i = id; i < nbAutoclaves - 1; i++) {
+                ipAutoclaves[i] = ipAutoclaves[i+1];
+                etatMachine[i] = etatMachine[i+1];
+                tempMachine[i] = tempMachine[i+1];
+                enLigne[i] = enLigne[i+1];
+              }
+              nbAutoclaves--;
+            }
+          }
+
+          // =========================================================
+          // 2. GENERATION DYNAMIQUE DE LA PAGE HTML
+          // =========================================================
+          webClient.println("HTTP/1.1 200 OK");
+          webClient.println("Content-Type: text/html; charset=utf-8");
+          webClient.println("Connection: close");
+          webClient.println();
+          
+          webClient.println("<!DOCTYPE html><html lang='fr'><head><meta charset='UTF-8'>");
+          webClient.println("<title>Raynal & Roquelaure - Supervision Sécurisée</title>");
+          webClient.println("<style>");
+          webClient.println("body { background-color: #1a1a1a; color: #fff; font-family: 'Segoe UI', sans-serif; padding: 20px; text-align: center; }");
+          webClient.println(".container { max-width: 1200px; margin: 0 auto; }");
+          webClient.println(".header { background-color: #c8102e; padding: 20px; border-radius: 10px; border-bottom: 4px solid #f1c40f; margin-bottom: 20px;}");
+          webClient.println("h1 { margin: 0; color: white; letter-spacing: 2px; }");
+          webClient.println(".flex-panels { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; margin-bottom: 20px; }");
+          webClient.println(".panel { background: #2d2d2d; padding: 20px; border-radius: 10px; border: 1px solid #444; min-width: 300px; }");
+          webClient.println(".machines-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 15px; }");
+          webClient.println(".machine-card { background: #222; border: 1px solid #444; border-radius: 10px; padding: 20px; width: 220px; box-shadow: 0 4px 8px rgba(0,0,0,0.3); }");
+          webClient.println(".temp-val { font-size: 2.2em; font-weight: bold; margin: 10px 0; color: #e74c3c; }");
+          webClient.println(".btn { padding: 10px 15px; text-decoration: none; color: white; border-radius: 5px; display: inline-block; font-weight: bold; width: 100%; box-sizing: border-box; margin-bottom: 10px;}");
+          webClient.println(".btn-start { background: #27ae60; } .btn-stop { background: #c0392b; } .btn-ping { background: #2980b9; } .btn-add { background: #8e44ad; border: none; cursor: pointer;}");
+          webClient.println(".btn-del { background: #555; padding: 5px 10px; margin-top: 15px; font-size: 0.85em; } .btn-del:hover { background: #e74c3c; }");
+          webClient.println("input[type=number], input[type=text] { padding: 8px; font-size: 1.1em; text-align: center; border-radius: 5px; border: none; margin-bottom: 10px; width: 80%; }");
+          webClient.println("button { padding: 10px 15px; background: #f39c12; color: white; border: none; font-weight: bold; cursor: pointer; border-radius: 5px; width: 80%; }");
+          webClient.println("</style></head><body><div class='container'>");
+          
+          webClient.println("<div class='header'><h1>RAYNAL & ROQUELAURE</h1>");
+          webClient.println("<p style='color: #f1c40f; font-weight: bold;'>SUPERVISION MANUELLE & SCALABLE (RESEAU ETHERNET ISOLÉ)</p></div>");
+          
+          webClient.println("<div class='flex-panels'>");
+          
+          webClient.println("<div class='panel'><h3>Consigne Globale (°C)</h3>");
+          webClient.println("<form action='/' method='GET'>");
+          webClient.print("<input type='number' name='consigne' value='");
+          webClient.print(consigneGlobale, 1);
+          webClient.println("' step='0.1'><br><button type='submit'>APPLIQUER</button>");
+          webClient.println("</form></div>");
+
+          webClient.println("<div class='panel'><h3>Ajouter un Autoclave</h3>");
+          if (nbAutoclaves < MAX_AUTOCLAVES) {
+            webClient.println("<form action='/' method='GET'>");
+            webClient.println("<input type='text' name='add_ip' placeholder='ex: 192.168.50.56' required><br>");
+            webClient.println("<button type='submit' class='btn-add'>INTÉGRER & PING</button>");
+            webClient.println("</form>");
+          } else {
+            webClient.println("<p style='color: #e74c3c; font-weight: bold;'>Capacité maximale atteinte (10)</p>");
+          }
+          webClient.println("</div></div>");
+
+          webClient.println("<div class='machines-grid'>");
+          
+          for(int i = 0; i < nbAutoclaves; i++) {
+            String ipStr = String(ipAutoclaves[i][0]) + "." + String(ipAutoclaves[i][1]) + "." + String(ipAutoclaves[i][2]) + "." + String(ipAutoclaves[i][3]);
+            
+            webClient.println("<div class='machine-card'>");
+            webClient.println("<h3 style='color: #f1c40f; margin-top:0;'>Autoclave " + String(i+1) + "</h3>");
+            webClient.println("<p style='margin: 5px 0; color: #aaa;'>IP: " + ipStr + "</p>");
+            
+            if (enLigne[i]) {
+              webClient.println("<p style='color:#2ecc71; font-weight:bold; margin: 5px 0;'>✓ EN LIGNE</p>");
+              webClient.println("<div class='temp-val'>" + String(tempMachine[i], 1) + " °C</div>");
+              
+              if (etatMachine[i] == 1) {
+                webClient.println("<p style='color:#f39c12; font-weight:bold;'>EN CHAUFFE</p>");
+                webClient.println("<a href='/?stop=" + String(i) + "' class='btn btn-stop'>ARRÊTER</a>");
+              } else {
+                webClient.println("<p style='color:#95a5a6; font-weight:bold;'>À L'ARRÊT</p>");
+                webClient.println("<a href='/?start=" + String(i) + "' class='btn btn-start'>DÉMARRER</a>");
+              }
+              webClient.println("<a href='/?scan=" + String(i) + "' class='btn btn-ping'>ACTUALISER</a>");
+            } else {
+              webClient.println("<p style='color:#c0392b; font-weight:bold; margin: 5px 0;'>✗ HORS LIGNE</p>");
+              webClient.println("<div class='temp-val' style='color:#7f8c8d'>--.- °C</div>");
+              webClient.println("<a href='/?scan=" + String(i) + "' class='btn btn-ping'>TESTER (PING)</a>");
+            }
+            
+            webClient.println("<a href='/?del=" + String(i) + "' class='btn btn-del'>🗑️ SUPPRIMER</a>");
+            webClient.println("</div>");
+          }
+          
+          webClient.println("</div></div></body></html>");
+          
+          delay(10); 
+          break;
+        }
+        
+        if (c == '\n') {
+          currentLineIsBlank = true;
         } else if (c != '\r') {
-          currentLine += c;
+          currentLineIsBlank = false;
         }
       }
     }
-    webClient.stop();
+    webClient.stop(); 
   }
 }
