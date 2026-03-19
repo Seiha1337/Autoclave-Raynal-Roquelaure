@@ -64,7 +64,7 @@ void pingAndSync(int id) {
     lastDiagnostic += "Cible IP       : " + ipStr + " (Port 502)\n";
     lastDiagnostic += "====================================\n\n";
     lastDiagnostic += "[ANALYSE]\n";
-    lastDiagnostic += "L'automate maitre (OPTA) n'a pas reçu de reponse Modbus \n";
+    lastDiagnostic += "L'automate maitre (OPTA) n'a pas recu de reponse Modbus \n";
     lastDiagnostic += "de l'esclave dans le delai imparti (250ms).\n\n";
     lastDiagnostic += "[PROCEDURE DE MAINTENANCE HORS-LIGNE]\n";
     lastDiagnostic += "1. Verifier la presence de tension 24V sur l'Autoclave " + String(id+1) + ".\n";
@@ -153,79 +153,91 @@ void loop() {
           webClient.println();
           
           webClient.println("<!DOCTYPE html><html lang='fr'><head><meta charset='UTF-8'>");
+          webClient.println("<meta name='viewport' content='width=device-width, initial-scale=1.0'>");
           webClient.println("<title>SCADA - Raynal & Roquelaure</title>");
           webClient.println("<style>");
           
-          // CSS INDUSTRIEL (Brut, Contraste, Monospace)
-          webClient.println(":root { --bg: #121212; --panel: #1e1e1e; --border: #333; --text: #d4d4d4; --red: #e74c3c; --green: #00ff66; --yellow: #f1c40f; --carnus: #004b9b; }");
-          webClient.println("body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; margin: 0; padding: 15px; }");
-          webClient.println(".header { background: #000; border-left: 5px solid var(--carnus); border-right: 5px solid var(--red); padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--border); margin-bottom: 20px; }");
-          webClient.println(".header h1 { margin: 0; font-size: 1.4em; color: #fff; letter-spacing: 1px; }");
-          webClient.println(".header .status { color: var(--green); font-family: monospace; font-size: 1.1em; }");
+          // CSS INDUSTRIEL OPTIMISÉ
+          webClient.println(":root { --bg: #0f1012; --panel: #1a1b1e; --border: #2d2e32; --text: #e1e2e6; --red: #ff3333; --red-dark: #8b0000; --green: #00e676; --green-dark: #004d26; --yellow: #ffb800; --carnus: #005ce6; }");
+          webClient.println("body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 20px; }");
           
-          webClient.println(".controls { display: flex; gap: 15px; margin-bottom: 20px; }");
-          webClient.println(".control-box { background: var(--panel); border: 1px solid var(--border); padding: 15px; flex: 1; }");
-          webClient.println(".control-box h3 { margin: 0 0 10px 0; font-size: 1em; color: var(--yellow); text-transform: uppercase; }");
-          webClient.println("input { background: #000; border: 1px solid #555; color: #fff; padding: 8px; font-family: monospace; font-size: 1.1em; width: 140px; text-align: center; }");
-          webClient.println("button { background: #333; color: #fff; border: 1px solid #555; padding: 8px 15px; cursor: pointer; font-weight: bold; text-transform: uppercase; transition: 0.2s; }");
-          webClient.println("button:hover { background: #444; border-color: #777; }");
+          // CSS Supra-titre SCADA ajouté
+          webClient.println(".supra-title { margin: 0 0 5px 0; color: var(--carnus); font-weight: 700; font-size: 0.85em; letter-spacing: 2px; text-transform: uppercase; }");
           
-          webClient.println(".grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; }");
-          webClient.println(".card { background: var(--panel); border: 1px solid var(--border); padding: 15px; display: flex; flex-direction: column; gap: 10px; }");
-          webClient.println(".card.online { border-top: 3px solid var(--green); }");
-          webClient.println(".card.offline { border-top: 3px solid var(--red); }");
+          webClient.println(".header { background: #0a0a0c; border-left: 6px solid var(--carnus); border-right: 6px solid var(--red); padding: 20px 25px; display: flex; justify-content: space-between; align-items: center; border-radius: 8px; border-bottom: 1px solid var(--border); margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }");
+          webClient.println(".header h1 { margin: 0; font-size: 1.5em; color: #fff; letter-spacing: 2px; text-transform: uppercase; font-weight: 700; }");
+          webClient.println(".header .status { color: var(--green); font-family: 'Courier New', monospace; font-size: 1.2em; font-weight: bold; }");
           
-          webClient.println(".card-title { font-weight: bold; color: #fff; display: flex; justify-content: space-between; }");
-          webClient.println(".card-ip { font-family: monospace; color: #888; font-size: 0.9em; }");
-          webClient.println(".data-display { background: #000; padding: 15px; border: 1px inset #222; text-align: center; margin: 10px 0; }");
-          webClient.println(".val-temp { font-family: 'Courier New', monospace; font-size: 2.5em; font-weight: bold; color: var(--green); }");
-          webClient.println(".val-temp.err { color: var(--red); }");
+          webClient.println(".controls { display: flex; gap: 20px; margin-bottom: 25px; flex-wrap: wrap; }");
+          webClient.println(".control-box { background: var(--panel); border: 1px solid var(--border); padding: 20px; flex: 1; border-radius: 8px; min-width: 300px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }");
+          webClient.println(".control-box h3 { margin: 0 0 15px 0; font-size: 0.95em; color: var(--yellow); text-transform: uppercase; letter-spacing: 1px; }");
+          webClient.println(".input-group { display: flex; gap: 10px; }");
+          webClient.println("input { background: #000; border: 1px solid #444; color: #fff; padding: 10px; font-family: 'Courier New', monospace; font-size: 1.1em; flex: 1; text-align: center; border-radius: 4px; outline: none; transition: border 0.3s; }");
+          webClient.println("input:focus { border-color: var(--carnus); }");
+          webClient.println("button { background: #2a2b30; color: #fff; border: 1px solid #444; padding: 10px 20px; cursor: pointer; font-weight: 600; text-transform: uppercase; border-radius: 4px; transition: all 0.2s ease; display: flex; justify-content: center; align-items: center; gap: 8px; }");
+          webClient.println("button:hover:not(:disabled) { background: #3f4045; border-color: #666; transform: translateY(-1px); }");
+          webClient.println("button:disabled { opacity: 0.7; cursor: not-allowed; }");
           
-          webClient.println(".btn-sys { width: 100%; margin-top: 5px; }");
-          webClient.println(".btn-sys.start { background: #005a2b; border-color: var(--green); } .btn-sys.start:hover { background: var(--green); color: #000; }");
-          webClient.println(".btn-sys.stop { background: #5a0000; border-color: var(--red); } .btn-sys.stop:hover { background: var(--red); color: #fff; }");
+          webClient.println(".grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }");
+          webClient.println(".card { background: var(--panel); border: 1px solid var(--border); padding: 20px; display: flex; flex-direction: column; gap: 12px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); position: relative; overflow: hidden; }");
+          webClient.println(".card::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 4px; }");
+          webClient.println(".card.online::before { background: var(--green); box-shadow: 0 0 10px var(--green); }");
+          webClient.println(".card.offline::before { background: var(--red); box-shadow: 0 0 10px var(--red); }");
           
-          // --- NOTIFICATION TOAST & MODAL LOG ---
-          webClient.println(".toast { position: fixed; top: 20px; right: 20px; background: #5a0000; border: 2px solid var(--red); padding: 15px; width: 300px; display: none; box-shadow: 0 0 20px rgba(231,76,60,0.4); z-index: 1000; }");
-          webClient.println(".toast h4 { margin: 0 0 10px 0; color: #fff; }");
-          webClient.println(".toast button { width: 100%; background: #000; color: var(--yellow); border-color: var(--yellow); }");
+          webClient.println(".card-title { font-weight: 800; color: #fff; display: flex; justify-content: space-between; align-items: center; font-size: 1.1em; }");
+          webClient.println(".card-ip { font-family: 'Courier New', monospace; color: #777; font-size: 0.9em; margin-bottom: 5px; }");
+          webClient.println(".data-display { background: #0a0a0c; padding: 20px 15px; border: 1px inset #222; text-align: center; border-radius: 6px; }");
+          webClient.println(".val-temp { font-family: 'Courier New', monospace; font-size: 3em; font-weight: bold; color: var(--green); text-shadow: 0 0 15px rgba(0,255,102,0.2); }");
+          webClient.println(".val-temp.err { color: var(--red); text-shadow: 0 0 15px rgba(255,51,51,0.2); }");
           
-          webClient.println(".modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: none; justify-content: center; align-items: center; z-index: 2000; }");
-          webClient.println(".modal-content { background: #111; border: 2px solid #555; width: 80%; max-width: 800px; padding: 20px; }");
-          webClient.println(".modal textarea { width: 100%; height: 300px; background: #000; color: var(--green); font-family: 'Courier New', monospace; padding: 10px; border: 1px solid #333; resize: none; }");
-          webClient.println(".modal .close-btn { background: var(--red); color: white; float: right; margin-bottom: 10px; }");
+          webClient.println(".btn-sys { width: 100%; margin-top: 8px; font-size: 0.85em; letter-spacing: 0.5px; }");
+          webClient.println(".btn-sys.start { background: var(--green-dark); border-color: var(--green); color: #fff; } .btn-sys.start:hover:not(:disabled) { background: var(--green); color: #000; }");
+          webClient.println(".btn-sys.stop { background: var(--red-dark); border-color: var(--red); color: #fff; } .btn-sys.stop:hover:not(:disabled) { background: var(--red); color: #fff; }");
           
-          // Loader
-          webClient.println(".spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #fff; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite; margin-left: 5px; }");
+          // --- NOTIFICATIONS & MODAL ---
+          webClient.println(".toast { position: fixed; top: 20px; right: 20px; background: #1a0505; border-left: 6px solid var(--red); padding: 20px; width: 320px; display: none; box-shadow: 0 10px 30px rgba(255,51,51,0.2); z-index: 1000; border-radius: 6px; animation: slideIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }");
+          webClient.println("@keyframes slideIn { from { transform: translateX(120%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }");
+          webClient.println(".toast h4 { margin: 0 0 12px 0; color: #fff; font-size: 1.1em; display: flex; align-items: center; gap: 8px; }");
+          webClient.println(".toast h4::before { content: '⚠️'; color: var(--red); }");
+          webClient.println(".toast button { width: 100%; background: transparent; color: var(--yellow); border: 1px solid var(--yellow); }");
+          webClient.println(".toast button:hover { background: rgba(241,196,15,0.1); }");
+          
+          webClient.println(".modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: none; justify-content: center; align-items: center; z-index: 2000; backdrop-filter: blur(4px); }");
+          webClient.println(".modal-content { background: #0a0a0c; border: 1px solid #333; width: 90%; max-width: 800px; padding: 25px; border-radius: 8px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }");
+          webClient.println(".modal h3 { color: #fff; margin: 0 0 20px 0; display: flex; justify-content: space-between; align-items: center; }");
+          webClient.println(".modal textarea { width: 100%; height: 350px; background: #050505; color: #00ff66; font-family: 'Courier New', monospace; padding: 15px; border: 1px solid #222; border-radius: 4px; resize: none; font-size: 0.95em; line-height: 1.5; box-sizing: border-box; }");
+          webClient.println(".close-btn { background: transparent; color: #888; border: none; font-size: 1.5em; cursor: pointer; padding: 0; } .close-btn:hover { color: #fff; }");
+          
+          webClient.println(".spinner { display: none; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.8s linear infinite; }");
+          webClient.println(".loading .spinner { display: inline-block; }");
           webClient.println("@keyframes spin { 100% { transform: rotate(360deg); } }");
           
           webClient.println("</style>");
           
-          // --- JAVASCRIPT AJAX & ERROR HANDLING ---
+          // --- JAVASCRIPT ---
           webClient.println("<script>");
           webClient.println("function sendReq(btn, url) {");
-          webClient.println("  let oldTxt = btn.innerHTML; btn.innerHTML = 'WAIT <div class=\"spinner\"></div>'; btn.disabled = true;");
+          webClient.println("  btn.classList.add('loading'); btn.disabled = true;");
           webClient.println("  fetch(url).then(r=>r.text()).then(html=>{");
           webClient.println("    let parser = new DOMParser(); let doc = parser.parseFromString(html, 'text/html');");
           webClient.println("    document.getElementById('dashboard').innerHTML = doc.getElementById('dashboard').innerHTML;");
           webClient.println("    checkErrors(doc);");
-          webClient.println("  }).catch(e=>alert('CRITICAL: OPTA INJOIGNABLE'));");
+          webClient.println("  }).catch(e=>{ alert('ERREUR CRITIQUE RÉSEAU'); btn.classList.remove('loading'); btn.disabled = false; });");
           webClient.println("}");
           
           webClient.println("function sendForm(e, form, prefix) {");
           webClient.println("  e.preventDefault();");
-          webClient.println("  let btn = form.querySelector('button'); let oldTxt = btn.innerHTML; btn.innerHTML = '... <div class=\"spinner\"></div>';");
+          webClient.println("  let btn = form.querySelector('button'); btn.classList.add('loading'); btn.disabled = true;");
           webClient.println("  let val = form.querySelector('input').value;");
           webClient.println("  fetch(prefix + val).then(r=>r.text()).then(html=>{");
           webClient.println("    let parser = new DOMParser(); let doc = parser.parseFromString(html, 'text/html');");
           webClient.println("    document.getElementById('dashboard').innerHTML = doc.getElementById('dashboard').innerHTML;");
-          webClient.println("    checkErrors(doc); btn.innerHTML = oldTxt;");
+          webClient.println("    checkErrors(doc); btn.classList.remove('loading'); btn.disabled = false;");
           webClient.println("  });");
           webClient.println("}");
 
           webClient.println("function checkErrors(doc) {");
-          webClient.println("  let errFlag = doc.getElementById('sys-err').innerText;");
-          webClient.println("  if(errFlag === '1') {");
+          webClient.println("  if(doc.getElementById('sys-err').innerText === '1') {");
           webClient.println("    document.getElementById('t-title').innerText = doc.getElementById('sys-title').innerText;");
           webClient.println("    document.getElementById('log-text').value = doc.getElementById('sys-diag').innerText;");
           webClient.println("    document.getElementById('toast').style.display = 'block';");
@@ -236,55 +248,51 @@ void loop() {
           webClient.println("function closeLogs() { document.getElementById('modal').style.display = 'none'; }");
           webClient.println("</script></head><body>");
 
-          // --- DONNÉES CACHÉES POUR LE JS ---
           webClient.println("<div style='display:none;' id='sys-err'>" + String(hasNewError ? "1" : "0") + "</div>");
           webClient.println("<div style='display:none;' id='sys-title'>" + lastErrorTitle + "</div>");
           webClient.println("<div style='display:none;' id='sys-diag'>" + lastDiagnostic + "</div>");
-          hasNewError = false; // On reset l'erreur après l'avoir envoyée
+          hasNewError = false;
 
-          // --- IHM DES ERREURS ---
-          webClient.println("<div id='toast' class='toast'><h4 id='t-title'>Erreur</h4><button onclick='showLogs()'>[+] DÉTAILS DIAGNOSTIC</button></div>");
-          webClient.println("<div id='modal' class='modal'><div class='modal-content'><button class='close-btn' onclick='closeLogs()'>X FERMER</button><h3>CONSOLE DE LOGS SYSTEME</h3><textarea id='log-text' readonly></textarea></div></div>");
+          webClient.println("<div id='toast' class='toast'><h4 id='t-title'>Erreur</h4><button onclick='showLogs()'>VOIR LE DIAGNOSTIC</button></div>");
+          webClient.println("<div id='modal' class='modal'><div class='modal-content'><h3><span>>_ TERMINAL DE MAINTENANCE</span><button class='close-btn' onclick='closeLogs()'>&times;</button></h3><textarea id='log-text' readonly></textarea></div></div>");
 
-          // --- INTERFACE PRINCIPALE ---
-          webClient.println("<div class='header'><div><h1>SCADA // RAYNAL & ROQUELAURE</h1></div><div class='status'>SYS.OK _</div></div>");
+          // Ligne modifiée avec le nouveau supra-titre !
+          webClient.println("<div class='header'><div><p class='supra-title'>Supervisory Control And Data Acquisition</p><h1>SCADA // RAYNAL & ROQUELAURE</h1></div><div class='status'>SYS.OK _</div></div>");
           
           webClient.println("<div class='controls'>");
-          webClient.println("<div class='control-box'><h3>Consigne Réseau</h3><form onsubmit='sendForm(event, this, \"/?consigne=\")'>");
+          webClient.println("<div class='control-box'><h3>Consigne Réseau (SV)</h3><form onsubmit='sendForm(event, this, \"/?consigne=\")' class='input-group'>");
           webClient.print("<input type='number' step='0.1' value='");
           webClient.print(consigneGlobale, 1);
-          webClient.println("'> <button type='submit'>WR_REG</button></form></div>");
+          webClient.println("'> <button type='submit'><span>WR_REG</span><div class='spinner'></div></button></form></div>");
           
           webClient.println("<div class='control-box'><h3>Déployer Nœud</h3>");
           if (nbAutoclaves < MAX_AUTOCLAVES) {
-            webClient.println("<form onsubmit='sendForm(event, this, \"/?add_ip=\")'><input type='text' placeholder='IP (ex: .56)' required> <button type='submit'>CONNECT</button></form>");
-          } else { webClient.println("<p style='color:var(--red);'>OVERLOAD</p>"); }
+            webClient.println("<form onsubmit='sendForm(event, this, \"/?add_ip=\")' class='input-group'><input type='text' placeholder='IP (ex: .56)' required> <button type='submit'><span>CONNECT</span><div class='spinner'></div></button></form>");
+          } else { webClient.println("<p style='color:var(--red); font-weight:bold;'>OVERLOAD</p>"); }
           webClient.println("</div></div>");
 
-          // --- DASHBOARD DYNAMIQUE (Mis à jour par AJAX) ---
           webClient.println("<div id='dashboard'><div class='grid'>");
-          
           for(int i = 0; i < nbAutoclaves; i++) {
             String ipStr = String(ipAutoclaves[i][0]) + "." + String(ipAutoclaves[i][1]) + "." + String(ipAutoclaves[i][2]) + "." + String(ipAutoclaves[i][3]);
             String cClass = enLigne[i] ? "card online" : "card offline";
             
             webClient.println("<div class='" + cClass + "'>");
             webClient.println("<div class='card-title'><span>AUTOCLAVE " + String(i+1) + "</span> <span style='color:" + (enLigne[i] ? "var(--green)" : "var(--red)") + "'>●</span></div>");
-            webClient.println("<div class='card-ip'>" + ipStr + "</div>");
+            webClient.println("<div class='card-ip'>TCP // " + ipStr + "</div>");
             
             if (enLigne[i]) {
-              webClient.println("<div class='data-display'><div class='val-temp'>" + String(tempMachine[i], 1) + "</div><div style='color:#888; font-size:0.8em;'>CELSIUS</div></div>");
+              webClient.println("<div class='data-display'><div class='val-temp'>" + String(tempMachine[i], 1) + "</div><div style='color:#666; font-size:0.8em; letter-spacing:1px;'>CELSIUS (PV)</div></div>");
               
               if (etatMachine[i] == 1) {
-                webClient.println("<button onclick='sendReq(this, \"/?stop=" + String(i) + "\")' class='btn-sys stop'>[0] STOP CYCLE</button>");
+                webClient.println("<button onclick='sendReq(this, \"/?stop=" + String(i) + "\")' class='btn-sys stop'><span>[0] STOP CYCLE</span><div class='spinner'></div></button>");
               } else {
-                webClient.println("<button onclick='sendReq(this, \"/?start=" + String(i) + "\")' class='btn-sys start'>[1] START CYCLE</button>");
+                webClient.println("<button onclick='sendReq(this, \"/?start=" + String(i) + "\")' class='btn-sys start'><span>[1] START CYCLE</span><div class='spinner'></div></button>");
               }
             } else {
-              webClient.println("<div class='data-display'><div class='val-temp err'>ERR</div><div style='color:#888; font-size:0.8em;'>COMM FAULT</div></div>");
-              webClient.println("<button onclick='sendReq(this, \"/?scan=" + String(i) + "\")' class='btn-sys start'>PING NODE</button>");
+              webClient.println("<div class='data-display'><div class='val-temp err'>ERR</div><div style='color:#666; font-size:0.8em; letter-spacing:1px;'>COMM FAULT</div></div>");
+              webClient.println("<button onclick='sendReq(this, \"/?scan=" + String(i) + "\")' class='btn-sys start' style='background:#003366; border-color:#004b9b;'><span>PING NODE</span><div class='spinner'></div></button>");
             }
-            webClient.println("<button onclick='sendReq(this, \"/?del=" + String(i) + "\")' class='btn-sys' style='background:#111; color:#666;'>DROP NODE</button>");
+            webClient.println("<button onclick='sendReq(this, \"/?del=" + String(i) + "\")' class='btn-sys' style='background:transparent; color:#666; border-color:#333;'><span>DROP NODE</span><div class='spinner'></div></button>");
             webClient.println("</div>");
           }
           
