@@ -24,12 +24,13 @@ IPAddress ipAutoclaves[MAX_AUTOCLAVES] = {
   IPAddress(192, 168, 50, 55)
 };
 
+// LA FAMEUSE CONSIGNE GLOBALE POUR TOUT LE MONDE
 float consigneGlobale = 110.0;
 int etatMachine[MAX_AUTOCLAVES] = {0};
 float tempMachine[MAX_AUTOCLAVES] = {0.0};
 bool enLigne[MAX_AUTOCLAVES] = {false};
 
-// --- MOTEUR DE DIAGNOSTIC BRUT (Style Syslog Linux/Proxmox) ---
+// --- MOTEUR DE DIAGNOSTIC BRUT (Logs & ASCII) ---
 bool hasNewError = false;
 String lastErrorTitle = "";
 String lastDiagnostic = "";
@@ -39,26 +40,41 @@ void pingAndSync(int id) {
   
   if (modbusTCPClient.begin(ipAutoclaves[id], 502)) {
     enLigne[id] = true;
-    modbusTCPClient.holdingRegisterWrite(0x02, (uint16_t)(consigneGlobale * 10));
-    modbusTCPClient.holdingRegisterWrite(0x01, etatMachine[id]);
-    long tempBrute = modbusTCPClient.holdingRegisterRead(0x00);
+    
+    // FIX MODBUS : Écriture groupée (Fonction 16) pour ne pas saturer l'ESP32
+    // On écrit 2 registres d'un coup en partant de l'adresse 0x01
+    modbusTCPClient.beginTransmission(1, HOLDING_REGISTERS, 0x01, 2);
+    modbusTCPClient.write(etatMachine[id]);                       // Registre 0x01
+    modbusTCPClient.write((uint16_t)(consigneGlobale * 10));      // Registre 0x02
+    modbusTCPClient.endTransmission();
+    
+    delay(20); // On laisse 20ms à l'écran TFT de l'ESP32 pour se rafraîchir
+    
+    // Lecture de la température (Fonction 03)
+    long tempBrute = modbusTCPClient.holdingRegisterRead(1, 0x00);
     if (tempBrute != -1) tempMachine[id] = tempBrute / 10.0;
+    
     modbusTCPClient.stop();
   } else {
-    // GENERATION DE L'ERREUR RAW SYSTEM
     enLigne[id] = false;
     tempMachine[id] = 0.0;
     modbusTCPClient.stop();
     ethClient.stop();
 
     String ipStr = String(ipAutoclaves[id][0]) + "." + String(ipAutoclaves[id][1]) + "." + String(ipAutoclaves[id][2]) + "." + String(ipAutoclaves[id][3]);
-    float ts = millis() / 1000.0; // Timestamp en secondes
+    float ts = millis() / 1000.0; 
     
     hasNewError = true;
     lastErrorTitle = "syslog: connection timeout to " + ipStr;
     
-    // Log format Proxmox / dmesg
-    lastDiagnostic = "[ " + String(ts, 3) + " ] modbus_tcp[502]: WARN: polling node " + ipStr + "...\n";
+    lastDiagnostic =  " __________________________________________________ \n";
+    lastDiagnostic += "|    ___   ___                                     |\n";
+    lastDiagnostic += "|   | _ \\ | _ \\    RAYNAL & ROQUELAURE             |\n";
+    lastDiagnostic += "|   |   / |   /                                    |\n";
+    lastDiagnostic += "|   |_|_\\ |_|_\\    LYCEE CHARLES CARNUS            |\n";
+    lastDiagnostic += "|__________________________________________________|\n\n";
+    
+    lastDiagnostic += "[ " + String(ts, 3) + " ] modbus_tcp[502]: WARN: polling node " + ipStr + "...\n";
     lastDiagnostic += "[ " + String(ts + 0.250, 3) + " ] modbus_tcp[502]: ERROR: connection timeout to " + ipStr + ":502\n";
     lastDiagnostic += "[ " + String(ts + 0.251, 3) + " ] scada_daemon[110]: kernel: state transition node_" + String(id) + " -> FAULT\n";
     lastDiagnostic += "[ " + String(ts + 0.251, 3) + " ] scada_daemon[110]: dropping node from active polling pool\n";
@@ -95,15 +111,11 @@ void loop() {
         
         if (c == '\n' && currentLineIsBlank) {
           
-          // --- TRAITEMENT DES ORDRES AJAX ---
-          
-          // NOUVEAU : Requête d'actualisation en arrière-plan (Background Polling)
           if (request.indexOf("GET /?bg_update=1") >= 0) {
             for(int i = 0; i < nbAutoclaves; i++) {
-              if(enLigne[i]) pingAndSync(i); // Actualise uniquement ceux qui sont en ligne !
+              if(enLigne[i]) pingAndSync(i); 
             }
           }
-          // Scan manuel (bouton CONNECTER)
           else if (request.indexOf("GET /?scan=") >= 0) {
             int id = request.substring(request.indexOf("scan=") + 5, request.indexOf("scan=") + 7).toInt();
             if(id < nbAutoclaves) pingAndSync(id);
@@ -120,6 +132,7 @@ void loop() {
             int posDebut = request.indexOf("consigne=") + 9;
             int posFin = request.indexOf(" HTTP", posDebut); 
             consigneGlobale = request.substring(posDebut, posFin).toFloat();
+            // L'OPTA impose la consigne à TOUS les ESP en ligne !
             for(int i = 0; i < nbAutoclaves; i++) { if(enLigne[i]) pingAndSync(i); }
           }
           else if (request.indexOf("GET /?add_ip=") >= 0) {
@@ -162,12 +175,10 @@ void loop() {
           webClient.println("<title>SCADA - Raynal & Roquelaure</title>");
           webClient.println("<style>");
           
-          // CSS INDUSTRIEL OPTIMISÉ
           webClient.println(":root { --bg: #0f1012; --panel: #1a1b1e; --border: #2d2e32; --text: #e1e2e6; --red: #ff3333; --red-dark: #8b0000; --green: #00e676; --green-dark: #004d26; --yellow: #ffb800; --carnus: #005ce6; }");
           webClient.println("body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 20px; }");
           
           webClient.println(".supra-title { margin: 0 0 5px 0; color: var(--carnus); font-weight: 700; font-size: 0.85em; letter-spacing: 2px; text-transform: uppercase; }");
-          
           webClient.println(".header { background: #0a0a0c; border-left: 6px solid var(--carnus); border-right: 6px solid var(--red); padding: 20px 25px; display: flex; justify-content: space-between; align-items: center; border-radius: 8px; border-bottom: 1px solid var(--border); margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }");
           webClient.println(".header h1 { margin: 0; font-size: 1.5em; color: #fff; letter-spacing: 2px; text-transform: uppercase; font-weight: 700; }");
           webClient.println(".header .status { color: var(--green); font-family: 'Courier New', monospace; font-size: 1.2em; font-weight: bold; }");
@@ -198,7 +209,6 @@ void loop() {
           webClient.println(".btn-sys.start { background: var(--green-dark); border-color: var(--green); color: #fff; } .btn-sys.start:hover:not(:disabled) { background: var(--green); color: #000; }");
           webClient.println(".btn-sys.stop { background: var(--red-dark); border-color: var(--red); color: #fff; } .btn-sys.stop:hover:not(:disabled) { background: var(--red); color: #fff; }");
           
-          // --- NOTIFICATIONS & MODAL ---
           webClient.println(".toast { position: fixed; top: 20px; right: 20px; background: #1a0505; border-left: 6px solid var(--red); padding: 20px; width: 320px; display: none; box-shadow: 0 10px 30px rgba(255,51,51,0.2); z-index: 1000; border-radius: 6px; animation: slideIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }");
           webClient.println("@keyframes slideIn { from { transform: translateX(120%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }");
           webClient.println(".toast h4 { margin: 0 0 12px 0; color: #fff; font-size: 1.1em; display: flex; align-items: center; gap: 8px; }");
@@ -209,7 +219,7 @@ void loop() {
           webClient.println(".modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: none; justify-content: center; align-items: center; z-index: 2000; backdrop-filter: blur(4px); }");
           webClient.println(".modal-content { background: #0a0a0c; border: 1px solid #333; width: 90%; max-width: 800px; padding: 25px; border-radius: 8px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }");
           webClient.println(".modal h3 { color: #fff; margin: 0 0 20px 0; display: flex; justify-content: space-between; align-items: center; font-family: monospace;}");
-          webClient.println(".modal textarea { width: 100%; height: 350px; background: #050505; color: #d4d4d4; font-family: 'Courier New', monospace; padding: 15px; border: 1px solid #222; border-radius: 4px; resize: none; font-size: 0.95em; line-height: 1.5; box-sizing: border-box; }");
+          webClient.println(".modal textarea { width: 100%; height: 350px; background: #050505; color: #d4d4d4; font-family: 'Courier New', monospace; padding: 15px; border: 1px solid #222; border-radius: 4px; resize: none; font-size: 0.95em; line-height: 1.5; box-sizing: border-box; white-space: pre; overflow-wrap: normal; }");
           webClient.println(".close-btn { background: transparent; color: #888; border: none; font-size: 1.5em; cursor: pointer; padding: 0; } .close-btn:hover { color: #fff; }");
           
           webClient.println(".spinner { display: none; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.8s linear infinite; }");
@@ -218,25 +228,22 @@ void loop() {
           
           webClient.println("</style>");
           
-          // --- JAVASCRIPT & BACKGROUND POLLING ---
           webClient.println("<script>");
-          
-          // Fonction d'auto-actualisation (tourne en boucle en arrière-plan)
           webClient.println("setInterval(() => {");
           webClient.println("  if(document.querySelectorAll('.loading').length === 0 && document.getElementById('modal').style.display !== 'flex') {");
           webClient.println("    fetch('/?bg_update=1').then(r=>r.text()).then(html=>{");
           webClient.println("      let parser = new DOMParser(); let doc = parser.parseFromString(html, 'text/html');");
-          webClient.println("      document.getElementById('dashboard').innerHTML = doc.getElementById('dashboard').innerHTML;");
+          webClient.println("      document.getElementById('machines-grid').innerHTML = doc.getElementById('machines-grid').innerHTML;");
           webClient.println("      checkErrors(doc);");
-          webClient.println("    }).catch(e=>{});"); // Fail silencieux pour le background
+          webClient.println("    }).catch(e=>{});");
           webClient.println("  }");
-          webClient.println("}, 2000);"); // Rafraîchissement toutes les 2 secondes
+          webClient.println("}, 2000);");
           
           webClient.println("function sendReq(btn, url) {");
           webClient.println("  btn.classList.add('loading'); btn.disabled = true;");
           webClient.println("  fetch(url).then(r=>r.text()).then(html=>{");
           webClient.println("    let parser = new DOMParser(); let doc = parser.parseFromString(html, 'text/html');");
-          webClient.println("    document.getElementById('dashboard').innerHTML = doc.getElementById('dashboard').innerHTML;");
+          webClient.println("    document.getElementById('machines-grid').innerHTML = doc.getElementById('machines-grid').innerHTML;");
           webClient.println("    checkErrors(doc);");
           webClient.println("  }).catch(e=>{ alert('ERREUR CRITIQUE RÉSEAU'); btn.classList.remove('loading'); btn.disabled = false; });");
           webClient.println("}");
@@ -247,7 +254,7 @@ void loop() {
           webClient.println("  let val = form.querySelector('input').value;");
           webClient.println("  fetch(prefix + val).then(r=>r.text()).then(html=>{");
           webClient.println("    let parser = new DOMParser(); let doc = parser.parseFromString(html, 'text/html');");
-          webClient.println("    document.getElementById('dashboard').innerHTML = doc.getElementById('dashboard').innerHTML;");
+          webClient.println("    document.getElementById('machines-grid').innerHTML = doc.getElementById('machines-grid').innerHTML;");
           webClient.println("    checkErrors(doc); btn.classList.remove('loading'); btn.disabled = false;");
           webClient.println("  });");
           webClient.println("}");
@@ -286,7 +293,7 @@ void loop() {
           } else { webClient.println("<p style='color:var(--red); font-weight:bold;'>OVERLOAD</p>"); }
           webClient.println("</div></div>");
 
-          webClient.println("<div id='dashboard'><div class='grid'>");
+          webClient.println("<div id='machines-grid' class='grid'>");
           for(int i = 0; i < nbAutoclaves; i++) {
             String ipStr = String(ipAutoclaves[i][0]) + "." + String(ipAutoclaves[i][1]) + "." + String(ipAutoclaves[i][2]) + "." + String(ipAutoclaves[i][3]);
             String cClass = enLigne[i] ? "card online" : "card offline";
@@ -310,8 +317,9 @@ void loop() {
             webClient.println("<button onclick='sendReq(this, \"/?del=" + String(i) + "\")' class='btn-sys' style='background:transparent; color:#666; border-color:#333;'><span>DROP NODE</span><div class='spinner'></div></button>");
             webClient.println("</div>");
           }
+          webClient.println("</div>"); 
           
-          webClient.println("</div></div></body></html>");
+          webClient.println("</body></html>");
           delay(10); 
           break;
         }
