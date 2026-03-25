@@ -1,0 +1,5 @@
+# Dire à GitHub d'ignorer le dossier web dans le calcul des langages (considéré comme des ressources externes/vendored)
+APPLICATION/** linguist-vendored
+
+# (Optionnel) Si tu as d'autres gros fichiers HTML isolés que tu veux cacher des stats :
+# *.html linguist-detectable=false
