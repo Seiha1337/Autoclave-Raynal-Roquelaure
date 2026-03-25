@@ -1,9 +1,7 @@
 // ╔══════════════════════════════════════════════════════════╗
 // ║      SIMULATEUR AUTOCLAVE - RAYNAL & ROQUELAURE          ║
-// ║      - Modbus TCP Server pour OPTA (Port 502)            ║
-// ║      (NE PAS OUBLIER DE CHANGER L IP AVANT DE TELEVERSER)║
-// ║      changeant juste la fin de l'adresse IP à la ligne 19║ 
-// ║      (51 pour la carte 1, 52 pour la carte 2, etc.).     ║  
+// ║      - Modbus TCP Server pour PC SCADA (Port 502)        ║
+// ║      - UI TFT Modernisée                                 ║
 // ╚══════════════════════════════════════════════════════════╝
 
 #include <Arduino.h>
@@ -19,7 +17,7 @@
 #define ETH_PHY_TYPE  ETH_PHY_LAN8720
 #define ETH_CLK_MODE  ETH_CLOCK_GPIO0_IN
 
-// --- Paramètres Réseau (A CHANGER POUR CHAQUE CARTE: 51, 52, 53, 54, 55) ---
+// --- Paramètres Réseau (Autoclave 2 = .51) ---
 IPAddress local_ip(192, 168, 50, 51); 
 IPAddress gateway(192, 168, 50, 1);
 IPAddress subnet(255, 255, 255, 0);
@@ -30,7 +28,7 @@ TFT_eSPI tft = TFT_eSPI();
 
 // --- Registres Modbus ---
 const int REG_TEMP     = 0x00; 
-const int REG_STATE    = 0x01;  // L'OPTA écrira 1 pour Marche, 0 pour Arrêt
+const int REG_STATE    = 0x01;  
 const int REG_CONSIGNE = 0x02; 
 
 // --- Variables Simulation Autoclave ---
@@ -49,61 +47,73 @@ int lastState = -1;
 float lastConsigne = -1.0;
 bool lastRelais = !relaisChauffe;
 
-#define COLOR_RR_RED   tft.color565(200, 20, 20)
-#define COLOR_DARKBOX  tft.color565(30, 30, 30)
+// --- Palette de couleurs "Dark UI" ---
+#define COLOR_BG       tft.color565(15, 15, 20)   // Fond très sombre
+#define COLOR_CARD     tft.color565(35, 35, 45)   // Gris bleuté pour les encarts
+#define COLOR_RR_RED   tft.color565(220, 30, 30)  // Rouge entreprise
+#define COLOR_TEXT_DIM tft.color565(150, 150, 150)// Texte secondaire
 
 void drawStaticUI() {
-  tft.fillScreen(TFT_BLACK);
-  tft.fillRoundRect(5, 5, 230, 40, 5, COLOR_RR_RED);
+  tft.fillScreen(COLOR_BG);
+  
+  // Header principal
+  tft.fillRoundRect(5, 5, 230, 40, 6, COLOR_RR_RED);
   tft.setTextColor(TFT_WHITE, COLOR_RR_RED);
   tft.setTextDatum(MC_DATUM); 
   tft.drawString("RAYNAL & ROQUELAURE", 120, 18, 2);
   tft.setTextColor(TFT_YELLOW, COLOR_RR_RED);
-  tft.drawString("AUTOCLAVE", 120, 33, 1);
+  tft.drawString("AUTOCLAVE 2", 120, 33, 1);
 
-  tft.drawRoundRect(5, 90, 230, 70, 5, TFT_DARKGREY); 
-  tft.drawRoundRect(5, 165, 230, 45, 5, TFT_DARKGREY); 
-
-  tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+  // Carte 1 : Processus (Température & Consigne)
+  tft.fillRoundRect(5, 55, 230, 115, 8, COLOR_CARD);
+  tft.setTextColor(COLOR_TEXT_DIM, COLOR_CARD);
   tft.setTextDatum(TL_DATUM); 
-  tft.drawString("Temperature :", 15, 95, 2);
-  tft.drawString("Consigne :", 15, 170, 2);
-  tft.drawString("Relais Chauffe :", 15, 220, 2);
+  tft.drawString("TEMPERATURE C.", 15, 65, 2);
+  tft.drawString("CONSIGNE SV.", 15, 145, 2);
+
+  // Carte 2 : Système (Statut & Relais)
+  tft.fillRoundRect(5, 180, 230, 55, 8, COLOR_CARD);
+  tft.setTextColor(COLOR_TEXT_DIM, COLOR_CARD);
+  tft.setTextDatum(TL_DATUM); 
+  tft.drawString("Vanne Vapeur :", 15, 190, 2);
 }
 
 void setup() {
   Serial.begin(115200);
   delay(1000);
 
+  // Init Ecran
   tft.init();
   tft.setRotation(0); 
   drawStaticUI();
 
+  // Init Réseau
   ETH.begin(ETH_PHY_ADDR, ETH_PHY_POWER, ETH_PHY_MDC, ETH_PHY_MDIO, ETH_PHY_TYPE, ETH_CLK_MODE);
   ETH.config(local_ip, gateway, subnet);
 
+  // Init Modbus
   mb.server();
   mb.addHreg(REG_TEMP, 200); 
-  mb.addHreg(REG_STATE, 0);  // Démarre à l'arrêt (0)
+  mb.addHreg(REG_STATE, 0); 
   mb.addHreg(REG_CONSIGNE, 1100); 
 }
 
 void loop() {
   mb.task();
 
-  // 1. LECTURE DES ORDRES DU MAITRE (OPTA)
+  // 1. LECTURE DES ORDRES DU MAITRE (PC SCADA)
   uint16_t consigneModbus = mb.Hreg(REG_CONSIGNE);
   if (consigneModbus > 1100) { consigneModbus = 1100; mb.Hreg(REG_CONSIGNE, 1100); }
   consigne = consigneModbus / 10.0;
 
-  uint16_t ordreOpta = mb.Hreg(REG_STATE);
+  uint16_t ordreMaitre = mb.Hreg(REG_STATE);
 
-  // Si l'OPTA ordonne l'arrêt d'urgence et qu'on n'est pas déjà au repos
-  if (ordreOpta == 0 && cycleState != 0 && cycleState != 3) {
-    cycleState = 3; // On force le refroidissement
+  // Si le SCADA ordonne l'arrêt d'urgence
+  if (ordreMaitre == 0 && cycleState != 0 && cycleState != 3) {
+    cycleState = 3; 
   }
 
-  // Mise à jour de la simulation (Toutes les 1s)
+  // 2. MOTEUR DE SIMULATION (Toutes les 1s)
   if (millis() - lastUpdate > 1000) {
     lastUpdate = millis();
 
@@ -111,8 +121,7 @@ void loop() {
       case 0: // REPOS
         temperature = 20.0; 
         relaisChauffe = false;
-        // On attend que l'OPTA écrive "1" pour démarrer
-        if (ordreOpta == 1) { cycleState = 1; }
+        if (ordreMaitre == 1) { cycleState = 1; }
         break;
 
       case 1: // CHAUFFE OU AJUSTEMENT
@@ -144,7 +153,6 @@ void loop() {
           timerSterilisation++; 
           if (timerSterilisation > 60) {
             cycleState = 3;
-            mb.Hreg(REG_STATE, 0); // Indique à l'OPTA que le cycle est fini
           }
         }
         break;
@@ -154,61 +162,67 @@ void loop() {
         temperature -= 3.0; 
         if (temperature <= 20.0) {
           cycleState = 0; 
-          mb.Hreg(REG_STATE, 0); // Sécurité
         }
         break;
     }
 
-    // Écriture de la température pour que l'OPTA puisse la lire
+    // --- SYNCHRONISATION MODBUS ---
     mb.Hreg(REG_TEMP, (uint16_t)(temperature * 10));
+    mb.Hreg(REG_STATE, cycleState); // Correction vitale pour le suivi du PC
 
-    // --- MISE A JOUR DE L'ECRAN (Identique à ton code original) ---
+    // --- RAFRAICHISSEMENT ECRAN TFT ---
+    
+    // Affichage de l'état du cycle (en bas de la carte 2)
     if (cycleState != lastState) {
       tft.setTextDatum(MC_DATUM);
-      tft.fillRect(5, 55, 230, 25, TFT_BLACK); 
+      tft.fillRoundRect(15, 210, 210, 20, 4, COLOR_BG); // Efface l'ancien texte
       
-      if (cycleState == 0) { tft.setTextColor(TFT_BLUE, TFT_BLACK); tft.drawString(">>> REPOS <<<", 120, 67, 4); }
+      if (cycleState == 0) { tft.setTextColor(TFT_DARKGREY, COLOR_BG); tft.drawString("MACHINE EN REPOS", 120, 220, 2); }
       if (cycleState == 1) { 
         if (temperature < consigne) {
-          tft.setTextColor(TFT_RED, TFT_BLACK); tft.drawString(">>> CHAUFFE <<<", 120, 67, 4); 
+          tft.setTextColor(TFT_ORANGE, COLOR_BG); tft.drawString("MONTEE EN TEMPERATURE", 120, 220, 2); 
         } else {
-          tft.setTextColor(TFT_ORANGE, TFT_BLACK); tft.drawString(">>> AJUSTEMENT <<<", 120, 67, 4); 
+          tft.setTextColor(TFT_ORANGE, COLOR_BG); tft.drawString("AJUSTEMENT THERMIQUE", 120, 220, 2); 
         }
       }
-      if (cycleState == 2) { tft.setTextColor(TFT_MAGENTA, TFT_BLACK); tft.drawString(">>> STERILISATION <<<", 120, 67, 4); }
-      if (cycleState == 3) { tft.setTextColor(TFT_CYAN, TFT_BLACK); tft.drawString(">>> REFROIDISSEMENT <<<", 120, 67, 2); }
+      if (cycleState == 2) { tft.setTextColor(TFT_GREEN, COLOR_BG); tft.drawString("STERILISATION EN COURS", 120, 220, 2); }
+      if (cycleState == 3) { tft.setTextColor(TFT_CYAN, COLOR_BG); tft.drawString("REFROIDISSEMENT...", 120, 220, 2); }
       lastState = cycleState;
     }
 
+    // Affichage des valeurs numériques (Carte 1)
     tft.setTextDatum(MC_DATUM); 
-    tft.setTextColor(TFT_YELLOW, TFT_BLACK);
-    tft.fillRect(10, 115, 220, 40, TFT_BLACK);
+    tft.setTextColor(TFT_WHITE, COLOR_CARD);
+    
+    // Redessine uniquement la zone du chiffre pour éviter les clignotements
+    tft.fillRect(40, 85, 160, 45, COLOR_CARD);
     char tempStr[10];
     sprintf(tempStr, "%.1f C", temperature);
-    tft.drawString(tempStr, 120, 135, 6); 
+    tft.drawString(tempStr, 120, 110, 6); 
 
     if (consigne != lastConsigne) {
       tft.setTextDatum(MR_DATUM);
-      tft.fillRect(130, 175, 100, 30, TFT_BLACK); 
-      tft.setTextColor(TFT_GREEN, TFT_BLACK);
+      tft.fillRect(130, 140, 100, 25, COLOR_CARD); 
+      tft.setTextColor(TFT_CYAN, COLOR_CARD);
       char consStr[10];
       sprintf(consStr, "%.1f C", consigne);
-      tft.drawString(consStr, 225, 190, 4); 
+      tft.drawString(consStr, 225, 152, 4); 
       lastConsigne = consigne;
-      lastState = -1; 
+      lastState = -1; // Force le rafraîchissement du statut
     }
 
+    // Affichage du Relais (Carte 2)
     if (relaisChauffe != lastRelais) {
       tft.setTextDatum(ML_DATUM);
-      tft.fillRect(150, 215, 80, 20, TFT_BLACK);
+      tft.fillRect(150, 185, 70, 20, COLOR_CARD);
       if (relaisChauffe) {
-        tft.fillRoundRect(150, 215, 60, 20, 3, TFT_GREEN);
+        tft.fillRoundRect(150, 185, 60, 20, 4, TFT_GREEN);
         tft.setTextColor(TFT_BLACK, TFT_GREEN);
-        tft.drawString(" ON ", 165, 225, 2);
+        tft.drawString(" ON ", 165, 195, 2);
       } else {
-        tft.fillRoundRect(150, 215, 60, 20, 3, TFT_DARKGREY);
-        tft.setTextColor(TFT_WHITE, TFT_DARKGREY);
-        tft.drawString(" OFF", 165, 225, 2);
+        tft.fillRoundRect(150, 185, 60, 20, 4, COLOR_BG);
+        tft.setTextColor(TFT_WHITE, COLOR_BG);
+        tft.drawString(" OFF", 165, 195, 2);
       }
       lastRelais = relaisChauffe;
     }
