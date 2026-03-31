@@ -1,5 +1,7 @@
 {
   "dependencies": {
-    "modbus-serial": "^8.0.25"
+    "dotenv": "^17.3.1",
+    "modbus-serial": "^8.0.25",
+    "mysql2": "^3.20.0"
   }
 }

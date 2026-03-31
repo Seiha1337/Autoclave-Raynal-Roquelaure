@@ -1,8 +1,22 @@
+require('dotenv').config(); // 👈 NOUVEAU : Charge les variables du fichier .env
 const ModbusRTU = require("modbus-serial");
+const mysql = require("mysql2/promise");
 
 console.log("==========================================================");
-console.log(" 🖥️ SUPERVISION DES 6 AUTOCLAVES : RAYNAL & ROQUELAURE");
+console.log(" 🖥️ SUPERVISION & HISTORISATION DES 6 AUTOCLAVES");
 console.log("==========================================================");
+
+// --- CONFIGURATION DE LA BASE DE DONNÉES SÉCURISÉE ---
+const pool = mysql.createPool({
+    host: process.env.DB_HOST,         // 👈 Récupère l'IP depuis le .env
+    port: process.env.DB_PORT,         // 👈 Récupère le port
+    user: process.env.DB_USER,         // 👈 Récupère l'utilisateur
+    password: process.env.DB_PASSWORD, // 👈 Récupère le mot de passe caché
+    database: process.env.DB_NAME,     // 👈 Récupère le nom de la BDD
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0
+});
 
 const autoclaves = [
     { id: "Autoclave 1 (OPTA)", ip: "192.168.50.50", mac: "A8:61:0A:AE:76:05" },
@@ -13,7 +27,6 @@ const autoclaves = [
     { id: "Autoclave 6 (ESP32)", ip: "192.168.50.55", mac: "XX:XX:XX:XX:XX:XX" }
 ];
 
-// Petite fonction utilitaire pour créer une pause
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function scruterAutoclave(machine) {
@@ -44,13 +57,26 @@ async function scruterAutoclave(machine) {
             chauffeActuelle = "OFF ❄️";
         }
 
-        console.log(`[🟢 EN LIGNE] ${machine.id}`);
-        console.log(`    ├─ Réseau   : IP ${machine.ip} | MAC ${machine.mac}`);
-        console.log(`    ├─ Process  : Temp = ${temperature}°C | Consigne = ${consigne}°C`);
-        console.log(`    └─ Machine  : Cycle = ${etatTexte} | Relais Chauffe = ${chauffeActuelle}\n`);
+        console.log(`[🟢 EN LIGNE] ${machine.id} | Temp: ${temperature}°C | Etat: ${etatTexte}`);
+
+        // --- INJECTION DANS LA BASE DE DONNÉES FUSIONNÉE ---
+        try {
+            const query = `
+                INSERT INTO mesures_autoclaves 
+                (autoclave_id, temperature, consigne, cycle, etat) 
+                VALUES (?, ?, ?, ?, ?)
+            `;
+            
+            const numeroAutoclave = machine.id.match(/\d+/)[0];
+            
+            await pool.execute(query, [numeroAutoclave, temperature, consigne, etatTexte, chauffeActuelle]);
+            console.log(`    ↳ 💾 Données sauvegardées en BDD.`);
+        } catch (dbError) {
+            console.log(`    ↳ ⚠️ Erreur BDD: ${dbError.message}`);
+        }
 
     } catch (e) {
-        console.log(`[🔴 HORS LIGNE] ${machine.id} (IP: ${machine.ip}) - Erreur: ${e.message}\n`);
+        console.log(`[🔴 HORS LIGNE] ${machine.id} (IP: ${machine.ip}) - Erreur: ${e.message}`);
     } finally {
         client.close();
     }
@@ -58,22 +84,27 @@ async function scruterAutoclave(machine) {
 
 async function bouclePrincipale() {
     while (true) {
-        console.log("----------------------------------------------------------");
+        console.log("\n----------------------------------------------------------");
         console.log(`🕒 Début de la scrutation : ${new Date().toLocaleTimeString()}`);
         
-        // On attend que TOUTES les machines soient scrutées l'une après l'autre
         for (const machine of autoclaves) {
             await scruterAutoclave(machine);
         }
 
-        console.log("✅ Cycle complet terminé.");
-        console.log("💤 Attente de 5 secondes avant le prochain passage...");
-        console.log("----------------------------------------------------------\n");
-        
-        // C'est ici que l'on marque la pause de 5 secondes APRES le travail
+        console.log("----------------------------------------------------------");
+        console.log("💤 Attente de 5 secondes...");
         await sleep(5000);
     }
 }
 
-// Lancement de la boucle infinie
-bouclePrincipale();
+// --- DÉMARRAGE DU PROGRAMME ---
+pool.getConnection()
+    .then(conn => {
+        console.log(`✅ Connexion à MariaDB (${process.env.DB_HOST}) réussie ! Lancement de la supervision...`);
+        conn.release(); 
+        bouclePrincipale();
+    })
+    .catch(err => {
+        console.error(`❌ Impossible de se connecter à MariaDB sur ${process.env.DB_HOST}.`);
+        console.error(err.message);
+    });
