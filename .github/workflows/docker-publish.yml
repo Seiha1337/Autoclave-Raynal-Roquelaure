@@ -2,8 +2,11 @@ name: Build and Publish Docker Image
 
 on:
   push:
-    # On écoute sur les deux noms de branches possibles
     branches: [ "main", "master" ]
+    # Le vigile : on déclenche uniquement si on touche à l'API ou à ce workflow
+    paths:
+      - 'Firmware/API_Supervision_Master/**'
+      - '.github/workflows/docker-publish.yml'
 
 env:
   REGISTRY: ghcr.io

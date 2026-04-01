@@ -1,13 +1,16 @@
 name: CI - Vérification Firmware ESP32
 
-# Le robot s'active à chaque push sur la branche principale
 on:
   push:
     branches: [ "main", "master" ]
+    # Le vigile : on déclenche uniquement si on touche aux ESP32 ou à ce workflow
+    paths:
+      - 'Firmware/ESP32_Slaves_Autoclaves/**'
+      - '.github/workflows/build_esp32.yml'
 
 jobs:
   build:
-    runs-on: ubuntu-latest # Le serveur cloud tourne sous Linux
+    runs-on: ubuntu-latest
 
     steps:
     - name: 📥 Récupération du code source
