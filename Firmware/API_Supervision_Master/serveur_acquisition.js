@@ -107,7 +107,7 @@ async function bouclePrincipale() {
 
         console.log("----------------------------------------------------------");
         console.log("💤 Attente de 1 minute avant la prochaine scrutation...");
-        await sleep(60000); // 60 000 millisecondes = 1 minute
+        await sleep(60000); // On attend 60 secondes avant de recommencer le cycle de scrutation
     }
 }
 
