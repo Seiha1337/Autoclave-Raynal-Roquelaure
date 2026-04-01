@@ -1,0 +1,44 @@
+name: Build and Publish Docker Image
+
+on:
+  push:
+    branches: [ "main" ]
+    # Ce workflow se lancera uniquement si tu modifies des fichiers dans le dossier de ton API
+    paths:
+      - 'Firmware/API_Supervision_Master/**'
+
+env:
+  REGISTRY: ghcr.io
+  # Récupère automatiquement ton nom d'utilisateur et le nom du dépôt (projet_raynal-roquelaure)
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Convertir le nom en minuscules (Docker refuse catégoriquement les majuscules)
+      - name: Lowercase image name
+        run: echo "IMAGE_NAME=$(echo ${{ env.IMAGE_NAME }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          # Le chemin où se trouve ton Dockerfile
+          context: ./Firmware/API_Supervision_Master
+          push: true
+          # Le nom final sera : ghcr.io/ton_pseudo/projet_raynal-roquelaure:latest
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest

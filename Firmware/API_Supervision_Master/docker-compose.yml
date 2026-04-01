@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  api-supervision:
+    # On va chercher l'image que GitHub Actions vient de compiler
+    # (Attention : tout doit être en minuscules pour Docker)
+    image: ghcr.io/seiha1337/projet_raynal-roquelaure:latest
+    container_name: supervision-autoclaves
+    
+    # Redémarrage automatique si le script plante ou si la VM redémarre
+    restart: always 
+    
+    # Très important : permet au conteneur de voir la BDD sur "127.0.0.1" (localhost de la VM)
+    network_mode: "host" 
+    
+    # Il ira lire le fichier .env caché qui se trouve dans le même dossier sur la VM
+    env_file:
+      - .env
