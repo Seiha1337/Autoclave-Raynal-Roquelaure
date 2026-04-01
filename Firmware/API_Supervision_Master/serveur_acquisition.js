@@ -3,23 +3,26 @@ const ModbusRTU = require("modbus-serial");
 const mysql = require("mysql2/promise");
 
 // ==========================================================
-// 🛡️ BOUCLIER ANTI-CRASH GLOBAL (Spécifique IoT industriel)
-// Empêche Node.js de planter si une machine débranchée 
-// renvoie une erreur réseau "en retard" après le TimeOut.
+// 🛡️ CONFIGURATION & MÉMOIRE DES INCIDENTS
+// ==========================================================
+const DELAI_LOG_INCIDENT = 10 * 60 * 1000; // 10 minutes (en ms)
+const derniersIncidentsEnregistres = {}; // Stocke le timestamp du dernier log par machine
+
+// ==========================================================
+// 🛡️ BOUCLIER ANTI-CRASH GLOBAL
 // ==========================================================
 process.on('uncaughtException', (err) => {
-    // On ignore silencieusement les erreurs de connexion refusée
     if (err.code !== 'ECONNREFUSED' && err.code !== 'EHOSTUNREACH' && err.code !== 'ETIMEDOUT') {
         console.error("⚠️ Erreur critique interceptée :", err.message);
     }
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-    // On capture les promesses orphelines de la librairie Modbus
+    // Capture les promesses orphelines
 });
 
 console.log("==========================================================");
-console.log(" 🖥️ SUPERVISION & HISTORISATION DES 6 AUTOCLAVES");
+console.log(" 🖥️ SUPERVISION INDUSTRIELLE : VERSION AVEC JOURNAL");
 console.log("==========================================================");
 
 const pool = mysql.createPool({
@@ -44,6 +47,36 @@ const autoclaves = [
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+// ==========================================================
+// 🚨 FONCTION D'ENREGISTREMENT DU JOURNAL D'INCIDENTS
+// ==========================================================
+async function enregistrerIncident(machine, type, details) {
+    const maintenant = Date.now();
+    const derniereAlerte = derniersIncidentsEnregistres[machine.id] || 0;
+
+    // On n'enregistre en BDD que si le délai de 10 minutes est passé
+    if (maintenant - derniereAlerte > DELAI_LOG_INCIDENT) {
+        try {
+            const query = `
+                INSERT INTO journal_incidents (autoclave_id, type_incident, description) 
+                VALUES (?, ?, ?)
+            `;
+            const numeroAutoclave = machine.id.match(/\d+/)[0];
+            await pool.execute(query, [numeroAutoclave, type, details]);
+            
+            derniersIncidentsEnregistres[machine.id] = maintenant; 
+            console.log(`    🚨 [LOGGED] Incident enregistré en BDD pour ${machine.id}`);
+        } catch (err) {
+            console.error("❌ Erreur enregistrement journal_incidents :", err.message);
+        }
+    } else {
+        console.log(`    ⚠️ [FILTRÉ] Incident déjà signalé pour ${machine.id} (Rétention 10min)`);
+    }
+}
+
+// ==========================================================
+// 🔍 SCRUTATION D'UNE MACHINE
+// ==========================================================
 async function scruterAutoclave(machine) {
     const client = new ModbusRTU();
     client.setTimeout(2000); 
@@ -74,50 +107,73 @@ async function scruterAutoclave(machine) {
 
         console.log(`[🟢 EN LIGNE] ${machine.id} | Temp: ${temperature}°C | Etat: ${etatTexte}`);
 
+        // Insertion des mesures normales
         try {
             const query = `
                 INSERT INTO mesures_autoclaves 
                 (autoclave_id, temperature, consigne, cycle, etat) 
                 VALUES (?, ?, ?, ?, ?)
             `;
-            
             const numeroAutoclave = machine.id.match(/\d+/)[0];
-            
             await pool.execute(query, [numeroAutoclave, temperature, consigne, etatTexte, chauffeActuelle]);
-            console.log(`    ↳ 💾 Données sauvegardées en BDD.`);
+            console.log(`    ↳ 💾 Mesure sauvegardée.`);
         } catch (dbError) {
-            console.log(`    ↳ ⚠️ Erreur BDD: ${dbError.message}`);
+            console.log(`    ↳ ⚠️ Erreur BDD Mesures: ${dbError.message}`);
         }
 
     } catch (e) {
-        console.log(`[🔴 HORS LIGNE] ${machine.id} (IP: ${machine.ip}) - Indisponible`);
+        let typeErreur = "ERREUR_COMMUNICATION";
+        let detailErreur = e.message;
+
+        // Précision du type d'incident pour le journal
+        if (e.code === 'ETIMEDOUT' || e.message.includes('Timeout')) {
+            typeErreur = "TIMEOUT_RESEAU";
+            detailErreur = "L'automate ne répond pas (Timeout 2s).";
+        } else if (e.code === 'ECONNREFUSED') {
+            typeErreur = "CONNEXION_REFUSEE";
+            detailErreur = "L'automate refuse la connexion sur le port 502.";
+        } else if (e.code === 'EHOSTUNREACH') {
+            typeErreur = "HOTE_INJOIGNABLE";
+            detailErreur = "L'IP est injoignable sur le réseau local.";
+        }
+
+        console.log(`[🔴 HORS LIGNE] ${machine.id} - ${typeErreur}`);
+        
+        // Tentative d'enregistrement dans le journal (avec filtrage 10min)
+        await enregistrerIncident(machine, typeErreur, detailErreur);
+
     } finally {
         client.close();
     }
 }
 
+// ==========================================================
+// 🔄 BOUCLE PRINCIPALE (1 minute)
+// ==========================================================
 async function bouclePrincipale() {
     while (true) {
         console.log("\n----------------------------------------------------------");
-        console.log(`🕒 Début de la scrutation : ${new Date().toLocaleTimeString()}`);
+        console.log(`🕒 Cycle de scrutation : ${new Date().toLocaleTimeString()}`);
         
         for (const machine of autoclaves) {
             await scruterAutoclave(machine);
         }
 
         console.log("----------------------------------------------------------");
-        console.log("💤 Attente de 1 minute avant la prochaine scrutation...");
-        await sleep(60000); // On attend 60 secondes avant de recommencer le cycle de scrutation
+        console.log("💤 Attente de 1 minute...");
+        await sleep(60000); 
     }
 }
 
+// ==========================================================
+// 🚀 LANCEMENT
+// ==========================================================
 pool.getConnection()
     .then(conn => {
-        console.log(`✅ Connexion à MariaDB (${process.env.DB_HOST}) réussie ! Lancement de la supervision...`);
+        console.log(`✅ Connexion MariaDB réussie (${process.env.DB_HOST})`);
         conn.release(); 
         bouclePrincipale();
     })
     .catch(err => {
-        console.error(`❌ Impossible de se connecter à MariaDB sur ${process.env.DB_HOST}. Vérifier le réseau ou le .env`);
-        console.error(err.message);
+        console.error(`❌ Échec connexion MariaDB : ${err.message}`);
     });
