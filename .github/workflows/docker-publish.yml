@@ -2,14 +2,11 @@ name: Build and Publish Docker Image
 
 on:
   push:
-    branches: [ "main" ]
-    # Ce workflow se lancera uniquement si tu modifies des fichiers dans le dossier de ton API
-    paths:
-      - 'Firmware/API_Supervision_Master/**'
+    # On écoute sur les deux noms de branches possibles
+    branches: [ "main", "master" ]
 
 env:
   REGISTRY: ghcr.io
-  # Récupère automatiquement ton nom d'utilisateur et le nom du dépôt (projet_raynal-roquelaure)
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
@@ -30,15 +27,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Convertir le nom en minuscules (Docker refuse catégoriquement les majuscules)
       - name: Lowercase image name
         run: echo "IMAGE_NAME=$(echo ${{ env.IMAGE_NAME }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          # Le chemin où se trouve ton Dockerfile
           context: ./Firmware/API_Supervision_Master
           push: true
-          # Le nom final sera : ghcr.io/ton_pseudo/projet_raynal-roquelaure:latest
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
