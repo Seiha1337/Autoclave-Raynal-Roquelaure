@@ -19,7 +19,7 @@
 
 // --- Paramètres Réseau (Réseau unifié IT/OT) ---
 // Nouvelle plage IP pour correspondre au serveur MariaDB
-IPAddress local_ip(172, 40, 1, 51); 
+IPAddress local_ip(172, 40, 1, 52); 
 IPAddress gateway(172, 40, 1, 1);
 IPAddress subnet(255, 255, 255, 0);
 
