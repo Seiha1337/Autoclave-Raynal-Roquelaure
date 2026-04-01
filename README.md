@@ -1,5 +1,6 @@
 # 🏭 Projet SCADA & Automatisme - Raynal & Roquelaure
 ![CI - Vérification Firmware ESP32](https://github.com/Seiha1337/Projet-Raynal-Roquelaure/actions/workflows/build_esp32.yml/badge.svg)
+[![Build and Publish Docker Image](https://github.com/Seiha1337/projet_raynal-roquelaure/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/Seiha1337/projet_raynal-roquelaure/actions/workflows/docker-publish.yml)
 
 
 ## 📖 Contexte du Projet
