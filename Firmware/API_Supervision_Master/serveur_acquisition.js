@@ -1,12 +1,17 @@
 require('dotenv').config(); 
 const ModbusRTU = require("modbus-serial");
 const mysql = require("mysql2/promise");
+const express = require('express'); // 🆕 Ajout du module Web
 
 // ==========================================================
 // 🛡️ CONFIGURATION & MÉMOIRE DES INCIDENTS
 // ==========================================================
-const DELAI_LOG_INCIDENT = 10 * 60 * 1000; // 10 minutes (en ms)
-const derniersIncidentsEnregistres = {}; // Stocke le timestamp du dernier log par machine
+const DELAI_LOG_INCIDENT = 10 * 60 * 1000; 
+const derniersIncidentsEnregistres = {}; 
+
+// Initialisation de l'API Express
+const app = express();
+app.use(express.json()); // 🆕 Permet de comprendre les données envoyées par Nathan
 
 // ==========================================================
 // 🛡️ BOUCLIER ANTI-CRASH GLOBAL
@@ -17,12 +22,10 @@ process.on('uncaughtException', (err) => {
     }
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-    // Capture les promesses orphelines
-});
+process.on('unhandledRejection', (reason, promise) => {});
 
 console.log("==========================================================");
-console.log(" 🖥️ SUPERVISION INDUSTRIELLE : VERSION AVEC JOURNAL");
+console.log(" 🖥️ SUPERVISION INDUSTRIELLE : ACQUISITION & COMMANDE");
 console.log("==========================================================");
 
 const pool = mysql.createPool({
@@ -48,13 +51,49 @@ const autoclaves = [
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // ==========================================================
+// 📥 API D'ÉCOUTE POUR LA COMMANDE OPERATEUR (DESCENTE)
+// ==========================================================
+app.post('/api/consigne', async (req, res) => {
+    const ipMachine = req.body.ip; 
+    const nouvelleConsigne = req.body.valeur; 
+
+    if (!ipMachine || !nouvelleConsigne) {
+        return res.status(400).json({ erreur: "IP ou valeur manquante" });
+    }
+
+    console.log(`\n⚙️ [COMMANDE OPÉRATEUR] Envoi de la consigne ${nouvelleConsigne}°C vers ${ipMachine}...`);
+
+    const clientCommande = new ModbusRTU();
+    clientCommande.setTimeout(2000);
+
+    try {
+        await clientCommande.connectTCP(ipMachine, { port: 502 });
+        clientCommande.setID(1); 
+
+        // Les automates attendent souvent une valeur multipliée par 10 pour la précision
+        const valeurModbus = Math.round(nouvelleConsigne * 10); 
+        
+        // Adresse 2 = L'adresse du registre de consigne (à adapter selon ta doc Modbus)
+        await clientCommande.writeRegister(2, valeurModbus); 
+
+        console.log(`✅ [SUCCÈS] Consigne transmise à l'automate !`);
+        res.status(200).json({ message: "Consigne appliquée avec succès" });
+
+    } catch (e) {
+        console.error(`❌ [ÉCHEC] Impossible d'envoyer la commande :`, e.message);
+        res.status(500).json({ erreur: "Erreur de communication avec l'autoclave" });
+    } finally {
+        clientCommande.close();
+    }
+});
+
+// ==========================================================
 // 🚨 FONCTION D'ENREGISTREMENT DU JOURNAL D'INCIDENTS
 // ==========================================================
 async function enregistrerIncident(machine, type, details) {
     const maintenant = Date.now();
     const derniereAlerte = derniersIncidentsEnregistres[machine.id] || 0;
 
-    // On n'enregistre en BDD que si le délai de 10 minutes est passé
     if (maintenant - derniereAlerte > DELAI_LOG_INCIDENT) {
         try {
             const query = `
@@ -75,7 +114,7 @@ async function enregistrerIncident(machine, type, details) {
 }
 
 // ==========================================================
-// 🔍 SCRUTATION D'UNE MACHINE
+// 🔍 SCRUTATION D'UNE MACHINE (RE MONTÉE)
 // ==========================================================
 async function scruterAutoclave(machine) {
     const client = new ModbusRTU();
@@ -107,7 +146,6 @@ async function scruterAutoclave(machine) {
 
         console.log(`[🟢 EN LIGNE] ${machine.id} | Temp: ${temperature}°C | Etat: ${etatTexte}`);
 
-        // Insertion des mesures normales
         try {
             const query = `
                 INSERT INTO mesures_autoclaves 
@@ -125,7 +163,6 @@ async function scruterAutoclave(machine) {
         let typeErreur = "ERREUR_COMMUNICATION";
         let detailErreur = e.message;
 
-        // Précision du type d'incident pour le journal
         if (e.code === 'ETIMEDOUT' || e.message.includes('Timeout')) {
             typeErreur = "TIMEOUT_RESEAU";
             detailErreur = "L'automate ne répond pas (Timeout 2s).";
@@ -138,8 +175,6 @@ async function scruterAutoclave(machine) {
         }
 
         console.log(`[🔴 HORS LIGNE] ${machine.id} - ${typeErreur}`);
-        
-        // Tentative d'enregistrement dans le journal (avec filtrage 10min)
         await enregistrerIncident(machine, typeErreur, detailErreur);
 
     } finally {
@@ -166,8 +201,15 @@ async function bouclePrincipale() {
 }
 
 // ==========================================================
-// 🚀 LANCEMENT
+// 🚀 LANCEMENT GLOBAL
 // ==========================================================
+
+// 1. Démarrage de l'écoute des requêtes Web (Nathan)
+app.listen(3000, () => {
+    console.log("👂 API Commande : En écoute sur le port 3000 (Prête pour le site web)");
+});
+
+// 2. Démarrage de la connexion BDD et de la boucle de scrutation
 pool.getConnection()
     .then(conn => {
         console.log(`✅ Connexion MariaDB réussie (${process.env.DB_HOST})`);
