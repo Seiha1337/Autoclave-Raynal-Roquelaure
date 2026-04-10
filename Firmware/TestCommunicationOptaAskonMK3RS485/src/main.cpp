@@ -1,64 +1,29 @@
-#include <Arduino.h>
+#include <SPI.h>
+#include <Ethernet.h>
 #include <ArduinoModbus.h>
 #include <ArduinoRS485.h>
 
 // ============================================================
-// Communication ASCON KM3 - Modbus RTU (8N1)
-// Adresse : 4 | Vitesse : 9600 bauds
+// 🌐 COMMUNICATION RESEAU (Modbus TCP)
 // ============================================================
+byte mac[] = { 0xA8, 0x61, 0x0A, 0xAE, 0x76, 0x05 }; 
+IPAddress ip(172, 40, 1, 50); 
+EthernetServer ethServer(502); 
 
-constexpr int KM3_ADDRESS = 4;    // Adresse du régulateur mise à 4
-constexpr auto baudrate { 9600 }; // Vitesse de communication
+ModbusTCPServer modbusTCPServer;
 
-constexpr auto bitduration { 1.f / baudrate }; // Delais de pré et post transmission (en microsecondes) pour le format 8N1
-constexpr auto preDelayBR { bitduration * 9.6f * 3.5f * 1e6 }; // 9.6 bits de silence avant et après la transmission, multiplié par 3.5 pour être sûr d'être au delà du minimum requis par le standard Modbus RTU
-constexpr auto postDelayBR { bitduration * 9.6f * 3.5f * 1e6 }; // 9.6 bits de silence avant et après la transmission, multiplié par 3.5 pour être sûr d'être au delà du minimum requis par le standard Modbus RTU
+// ============================================================
+// 🔌 COMMUNICATION ASCON KM3 (Modbus RTU)
+// ============================================================
+constexpr int KM3_ADDRESS = 4;
+constexpr auto baudrate { 9600 };
+constexpr auto bitduration { 1.f / baudrate };
+constexpr auto preDelayBR { bitduration * 9.6f * 3.5f * 1e6 };
+constexpr auto postDelayBR { bitduration * 9.6f * 3.5f * 1e6 };
 
-bool essayerLecture(const char* label, int adresse, uint16_t reg) {
-  // Le KM3 ne supporte QUE la fonction FC03 pour la lecture
-  long val = ModbusRTUClient.holdingRegisterRead(adresse, reg);
-  if (val != -1) {
-    Serial.print("  >>> REPONSE FC03 ");
-    Serial.print(label);
-    Serial.print(" = ");
-    Serial.println(val);
-    return true;
-  } else {
-    Serial.print("  >>> ERREUR Lecture ");
-    Serial.println(label);
-  }
-  return false;
-}
-
-void testConfig(const char* nom, uint16_t format) {
-  Serial.print("=== Configuration : ");
-  Serial.print(nom);
-  Serial.println(" ===");
-
-  ModbusRTUClient.end();
-  delay(100);
-  RS485.setDelays(preDelayBR, postDelayBR);
-
-  if (!ModbusRTUClient.begin(baudrate, format)) {
-    Serial.println("  Erreur demarrage Modbus RTU");
-    return;
-  }
-  delay(100);
-
-  // Test registre 1 : Valeur lue (PV - Process Value)
-  Serial.println("  Lecture Registre 1 (PV)...");
-  essayerLecture("PV", KM3_ADDRESS, 0x0001);
-
-  // Test registre 3 : Consigne opérative en cours (SP actif)
-  Serial.println("  Lecture Registre 3 (SP actif)...");
-  essayerLecture("SP Actif", KM3_ADDRESS, 0x0003);
-
-  // Test registre 6 : Consigne SP1 (Lecture/Écriture)
-  Serial.println("  Lecture Registre 6 (SP 1)...");
-  essayerLecture("SP1", KM3_ADDRESS, 0x0006);
-
-  Serial.println();
-}
+long consignePrecedente = -1;
+unsigned long previousMillis = 0;
+const unsigned long INTERVALLE_SCRUTATION = 2000; 
 
 void setup() {
   pinMode(LED_D0, OUTPUT);
@@ -66,66 +31,114 @@ void setup() {
   digitalWrite(LED_D0, HIGH);
 
   Serial.begin(9600);
-  delay(2000); // Attente pour l'ouverture du moniteur série
+  delay(2000); 
 
   Serial.println("==========================================");
-  Serial.println(" Test OPTA <-> ASCON KM3 (Adresse 4)");
-  Serial.println(" Si aucune réponse : INVERSER A et B !");
+  Serial.println(" 🚀 DEMARRAGE HYBRIDE : MODBUS TCP + USB");
   Serial.println("==========================================");
-  Serial.println();
 
-  // On teste uniquement en 8N1 car c'est le seul format supporté par le KM3
-  testConfig("9600 bauds - 8N1", SERIAL_8N1);
+  // 1. Démarrage Réseau
+  Ethernet.begin(mac, ip);
+  ethServer.begin();
+  Serial.print(" [RESEAU] Connecté ! IP : ");
+  Serial.println(Ethernet.localIP());
 
-  Serial.println("==========================================");
-  Serial.println("TESTS TERMINES");
+  if (!modbusTCPServer.begin()) {
+    Serial.println(" ❌ Erreur Serveur Modbus TCP");
+    while (1);
+  }
+  modbusTCPServer.configureHoldingRegisters(0, 3);
+  Serial.println(" [TCP] Serveur Modbus en écoute sur le port 502...");
+
+  // 2. Démarrage Série RTU
+  RS485.setDelays(preDelayBR, postDelayBR);
+  if (!ModbusRTUClient.begin(baudrate, SERIAL_8N1)) {
+    Serial.println(" ❌ Erreur Client Modbus RTU");
+    while (1);
+  }
+  Serial.println(" [RTU] Câble série RS485 prêt !");
   Serial.println("==========================================");
 }
 
-unsigned long previousMillis = 0;
-const unsigned long INTERVALLE_AFFICHAGE = 2000; // 2 secondes
-
 void loop() {
-  // Fait clignoter la LED pour montrer que le programme tourne
-  digitalWrite(LED_D1, !digitalRead(LED_D1));
+  digitalWrite(LED_D1, !digitalRead(LED_D1)); 
 
-  // Modification de la consigne SP1 par saisie sur le moniteur série
+  // ---------------------------------------------------------
+  // 🌐 CANAL 1 : COMMANDE VIA LE RÉSEAU (Site Web Nathan)
+  // ---------------------------------------------------------
+  EthernetClient client = ethServer.accept();
+  if (client) {
+    modbusTCPServer.accept(client);
+  }
+  modbusTCPServer.poll();
+
+  long consigneWeb = modbusTCPServer.holdingRegisterRead(2);
+
+  // Si l'ordre vient du réseau
+  if (consigneWeb != consignePrecedente && consignePrecedente != -1) {
+    Serial.print("\n🌐 [RESEAU] Commande TCP reçue : ");
+    Serial.println(consigneWeb);
+
+    if (ModbusRTUClient.holdingRegisterWrite(KM3_ADDRESS, 0x0006, consigneWeb)) {
+      Serial.println("    >>> 🏭 [SUCCÈS] Consigne transmise au régulateur !");
+      consignePrecedente = consigneWeb; 
+    }
+  }
+
+  // ---------------------------------------------------------
+  // ⌨️ CANAL 2 : COMMANDE VIA LE CLAVIER (Câble USB)
+  // ---------------------------------------------------------
   if (Serial.available() > 0) {
     String saisie = Serial.readStringUntil('\n');
     saisie.trim();
     int nouvelleConsigne = saisie.toInt();
 
-    // Vérification que la saisie est bien un nombre valide
     if (saisie.length() > 0 && (nouvelleConsigne != 0 || saisie == "0")) {
-      Serial.print("Ecriture nouvelle consigne SP1 = ");
+      Serial.print("\n⌨️ [LOCAL] Commande Clavier/USB reçue : ");
       Serial.println(nouvelleConsigne);
 
-      // Écriture dans le registre 6 (SP1) via FC06
       if (ModbusRTUClient.holdingRegisterWrite(KM3_ADDRESS, 0x0006, nouvelleConsigne)) {
-        Serial.println("  >>> Consigne SP1 modifiee avec succes !");
-        // Relecture pour confirmation
-        essayerLecture("SP1", KM3_ADDRESS, 0x0006);
+        Serial.println("    >>> 🏭 [SUCCÈS] Consigne transmise au régulateur !");
+        
+        // 🔄 SYNCHRONISATION : On met à jour la boîte mémoire TCP pour que 
+        // le Node.js de supervision voit aussi ce changement manuel !
+        modbusTCPServer.holdingRegisterWrite(2, nouvelleConsigne);
+        consignePrecedente = nouvelleConsigne; 
       } else {
-        Serial.println("  >>> ERREUR ecriture consigne SP1");
+        Serial.println("    >>> ❌ [ERREUR] Impossible de parler au régulateur.");
       }
-    } else {
-      Serial.println("Saisie invalide. Entrez une valeur entiere.");
     }
   }
 
-  // Affichage périodique de la température (PV) et de la consigne (SP1) toutes les 2 secondes
+  // ---------------------------------------------------------
+  // ⬆️ LA REMONTÉE (Acquisition depuis le TOR)
+  // ---------------------------------------------------------
   unsigned long currentMillis = millis();
-  if (currentMillis - previousMillis >= INTERVALLE_AFFICHAGE) {
+  if (currentMillis - previousMillis >= INTERVALLE_SCRUTATION) {
     previousMillis = currentMillis;
 
+    // Température
     long pv = ModbusRTUClient.holdingRegisterRead(KM3_ADDRESS, 0x0001);
+    if (pv != -1) {
+      modbusTCPServer.holdingRegisterWrite(0, pv); 
+    }
+
+    // Etat
+    modbusTCPServer.holdingRegisterWrite(1, 2); 
+
+    // Consigne
     long sp1 = ModbusRTUClient.holdingRegisterRead(KM3_ADDRESS, 0x0006);
+    if (sp1 != -1) {
+       // On ne l'écrase dans la mémoire TCP que si c'est la toute première lecture
+       if (consignePrecedente == -1) {
+         modbusTCPServer.holdingRegisterWrite(2, sp1); 
+         consignePrecedente = sp1; 
+       }
+    }
 
-    Serial.print("Temperature (PV) = ");
-    if (pv != -1) { Serial.print(pv); Serial.print(" ("); Serial.print(pv / 10.0, 1); Serial.print(" C)"); } else Serial.print("ERREUR");
-    Serial.print("  |  Consigne (SP1) = ");
-    if (sp1 != -1) { Serial.print(sp1); Serial.print(" ("); Serial.print(sp1 / 10.0, 1); Serial.println(" C)"); } else Serial.println("ERREUR");
+    Serial.print("📊 [MONITEUR] Temp: ");
+    Serial.print(pv != -1 ? String(pv/10.0) : "ERR");
+    Serial.print("°C | Consigne: ");
+    Serial.println(consignePrecedente != -1 ? String(consignePrecedente/10.0) : "ERR");
   }
-
-  delay(100);
 }
