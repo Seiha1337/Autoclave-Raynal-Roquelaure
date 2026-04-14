@@ -5,4 +5,6 @@ APPLICATION/qModMaster-Win64-exe-0.5.3-beta/qModMaster/QModMaster.log
 .vscode/launch.json
 .vscode/ipch
 node_modules/
+package-lock.json
+package.json
 .env
