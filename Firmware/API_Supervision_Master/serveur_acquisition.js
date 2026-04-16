@@ -45,12 +45,7 @@ const autoclaves = [
     { id: "Autoclave 3 (ESP32)", ip: "172.40.45.22", mac: "XX:XX:XX:XX:XX:XX" },
     { id: "Autoclave 4 (ESP32)", ip: "172.40.45.23", mac: "XX:XX:XX:XX:XX:XX" },
     { id: "Autoclave 5 (ESP32)", ip: "172.40.45.24", mac: "XX:XX:XX:XX:XX:XX" },
-    { id: "Autoclave 6 (ESP32)", ip: "172.40.45.25", mac: "XX:XX:XX:XX:XX:XX" },
-    { id: "Autoclave 7 (ESP32)", ip: "172.40.45.26", mac: "XX:XX:XX:XX:XX:XX" },
-    { id: "Autoclave 8 (ESP32)", ip: "172.40.45.27", mac: "XX:XX:XX:XX:XX:XX" },
-    { id: "Autoclave 9 (ESP32)", ip: "172.40.45.28", mac: "XX:XX:XX:XX:XX:XX" },
-    { id: "Autoclave 10 (ESP32)",ip: "172.40.45.29", mac: "XX:XX:XX:XX:XX:XX" },
-    { id: "Autoclave 11 (ESP32)",ip: "172.40.45.30", mac: "XX:XX:XX:XX:XX:XX" }
+    { id: "Autoclave 6 (ESP32)", ip: "172.40.45.25", mac: "XX:XX:XX:XX:XX:XX" }
 ];
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
